@@ -1,0 +1,10 @@
+{
+  "id": "drawio-editor",
+  "name": "Drawio Preview",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Preview-only version of Drawio: embed and interactively view draw.io diagrams in your notes (no embedded editor — edit with the local drawio app).",
+  "author": "doge-liang",
+  "authorUrl": "https://github.com/doge-liang",
+  "isDesktopOnly": false
+}

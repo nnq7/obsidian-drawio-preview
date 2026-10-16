@@ -6,9 +6,30 @@
    positioning context and the pointer affordance. */
 .drawio-dualformat-embed { position: relative; cursor: pointer; }
 .drawio-preview { width: 100%; overflow: auto; text-align: center; }
+/* Preview appearance (the plugin writes `data-appearance` on every preview
+   root — .drawio file view, ![[x.drawio]] embeds, and the interactive viewer's
+   viewport, which share the same `.drawio-preview` element). drawio exports its
+   colours as `light-dark(light, dark)` semantic pairs resolved by CSS
+   `color-scheme`, so pinning `color-scheme` here is what actually flips the
+   diagram's element colours; the viewer's own dark flag does not. The preview
+   paints no background of its own, so we supply it here. `transparent` keeps
+   the light element palette on a see-through background. */
+.internal-embed[data-appearance="light"] { color-scheme: only light; background-color: #ffffff; }
+.drawio-preview[data-appearance="light"] { color-scheme: only light; background-color: #ffffff; }
+.internal-embed[data-appearance="dark"] { color-scheme: only dark; background-color: #121212; }
+.drawio-preview[data-appearance="dark"] { color-scheme: only dark; background-color: #121212; }
+.internal-embed[data-appearance="transparent"] { color-scheme: only light; background-color: transparent; }
+.drawio-preview[data-appearance="transparent"] { color-scheme: only light; background-color: transparent; }
 /* The extracted SVG carries explicit width/height/viewBox (see ViewerRenderer),
    so it renders at its natural diagram size and scales down to fit; centre it. */
 .drawio-preview svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+/* `![[x.drawio|400x300]]`: the link pins BOTH dimensions, so scale the diagram
+   to the fixed box. The SVG's own `preserveAspectRatio` letterboxes it (keeps
+   the aspect, leaves margin) — without this the diagram keeps its natural
+   height and the fixed-height box grows a scrollbar. */
+.internal-embed[width][height] .drawio-preview svg {
+  width: 100% !important; height: 100% !important;
+}
 /* "Preview alignment: Left" setting. Body-level (toggled by the plugin on
    every window) so a settings change realigns already-rendered previews
    without waiting for a re-render. */
@@ -63,18 +84,6 @@ body.drawio-align-left .drawio-preview svg { margin: 0; }
 @media (hover: none) {
   .drawio-interactive-toolbar { opacity: 1; }
 }
-.drawio-interactive-resize-handle {
-  position: absolute; z-index: 3; left: 0; right: 0;
-  display: none; height: 10px; cursor: ns-resize;
-}
-.drawio-interactive-resize-handle::after {
-  content: ''; position: absolute; left: 50%; bottom: 2px;
-  width: 48px; height: 3px; transform: translateX(-50%);
-  border-radius: 2px; background: var(--interactive-accent);
-  opacity: .7;
-}
-.drawio-interactive-active .drawio-interactive-resize-handle { display: block; }
-.drawio-interactive-resizing { cursor: ns-resize; }
 .drawio-interactive-fullscreen {
   box-sizing: border-box; display: flex; flex-direction: column;
   width: 100%; height: 100%; padding: 12px;
@@ -83,8 +92,6 @@ body.drawio-align-left .drawio-preview svg { margin: 0; }
 .drawio-interactive-fullscreen .drawio-interactive-viewport {
   flex: 1 1 auto; min-height: 0; height: auto !important;
 }
-.drawio-interactive-fullscreen .drawio-interactive-resize-handle { display: none; }
-
 .drawio-error {
   padding: 8px 12px; color: var(--text-error);
   border: 1px solid var(--background-modifier-error); border-radius: 6px;
@@ -124,8 +131,6 @@ body.drawio-align-left .drawio-preview svg { margin: 0; }
 }
 .drawio-page-control button:disabled { opacity: .35; cursor: default; }
 .drawio-page-control button:not(:disabled):hover { color: var(--text-normal); }
-.drawio-page-control .drawio-pin { display: inline-flex; align-items: center; }
-.drawio-page-control .drawio-pin svg { width: 14px; height: 14px; }
 
 /* Dual-format embeds in Live Preview: native <img>, no post-processor class. */
 .internal-embed[src*=".drawio.svg"],

@@ -3,8 +3,8 @@
   "name": "Drawio Preview",
   "version": "1.0.0",
   "minAppVersion": "1.4.0",
-  "description": "Preview-only version of Drawio: embed and interactively view draw.io diagrams in your notes (no embedded editor — edit with the local drawio app).",
-  "author": "doge-liang",
+  "description": "只读预览版（基于 doge-liang/obsidian-drawio 改造，MIT 许可）：打开 .drawio 文件即预览，不含内嵌编辑",
+  "author": "hyc",
   "authorUrl": "https://github.com/doge-liang",
   "isDesktopOnly": false
 }

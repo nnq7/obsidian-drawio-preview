@@ -1,10 +1,10 @@
 {
-  "id": "drawio-editor",
+  "id": "drawio-preview",
   "name": "Drawio Preview",
   "version": "1.0.1",
   "minAppVersion": "1.4.0",
   "description": "只读预览版（基于 doge-liang/obsidian-drawio 改造，MIT 许可）：打开 .drawio 文件即预览，不含内嵌编辑",
   "author": "hyc",
-  "authorUrl": "https://github.com/doge-liang",
+  "authorUrl": "https://github.com/nnq7/obsidian-drawio-preview",
   "isDesktopOnly": false
 }

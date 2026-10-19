@@ -2,7 +2,7 @@ import { ensureViewerLoaded, getGraphViewer } from './loadViewer';
 import { isValidDrawioXml, ensureMxfile } from '../model/xmlUtils';
 import { sanitizeSvgToNode } from './svgSanitizer';
 import { crc32Hex } from './crc32';
-import { cacheFileName, readCache, writeCache } from './svgFileCache';
+import { cacheFileName, readCache, writeCache, type CacheStore } from './svgFileCache';
 import type { PreviewAppearance } from '../settings';
 
 export interface RenderOptions {
@@ -139,10 +139,10 @@ export function renderPreview(el: HTMLElement, xml: string, opts: RenderOptions)
 
 /** Where the preview cache lives and how big it may grow. */
 export interface PreviewCacheTarget {
-  /** Absolute cache directory; null on mobile / without filesystem access. */
-  dir: string | null;
-  /** Budget in bytes; older files are evicted past it. */
-  limitBytes: number;
+  /** `vault.adapter` + vault-relative directory; null when unavailable. */
+  store: CacheStore | null;
+  /** Max number of cached SVGs; the oldest are evicted past it. */
+  limitFiles: number;
 }
 
 /**
@@ -151,8 +151,8 @@ export interface PreviewCacheTarget {
  * writes the (sanitized, sized) `<svg>` back out.
  *
  * Cache identity is `<文件名>.<页码>.<CRC32(xml)>` — same name + same content ⇒
- * same diagram, so no path hashing is needed. `cache.dir === null` (mobile, or no
- * filesystem access) skips both the read and the write.
+ * same diagram, so no path hashing is needed. A null `cache.store` (no adapter,
+ * e.g. a stub environment) skips both the read and the write.
  *
  * Serialization MUST go through `XMLSerializer`: the rendered SVG contains
  * `&nbsp;` entity references that an HTML→XML round-trip cannot parse.
@@ -160,11 +160,11 @@ export interface PreviewCacheTarget {
 export async function renderPreviewCached(
   el: HTMLElement, xml: string, opts: RenderOptions, sourceName: string, cache: PreviewCacheTarget,
 ): Promise<boolean> {
-  const { dir } = cache;
+  const { store } = cache;
   const page = opts.page ?? 0;
   const crc = crc32Hex(xml);
   const name = cacheFileName(sourceName, page, crc);
-  const hit = await readCache(dir, name);
+  const hit = await readCache(store, name);
   if (hit) {
     const win = el.ownerDocument.defaultView ?? window;
     let root: Element | null = null;
@@ -193,7 +193,7 @@ export async function renderPreviewCached(
     if (svg) {
       try {
         const win = el.ownerDocument.defaultView ?? window;
-        void writeCache(dir, name, new win.XMLSerializer().serializeToString(svg), cache.limitBytes);
+        void writeCache(store, name, new win.XMLSerializer().serializeToString(svg), cache.limitFiles);
       } catch {
         /* soft failure: a cache write must never break the preview */
       }

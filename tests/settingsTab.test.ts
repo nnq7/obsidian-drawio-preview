@@ -82,36 +82,36 @@ describe('DrawioSettingTab', () => {
     expect(select.value).toBe('dark');
   });
 
-  it('hides the desktop-only rows on mobile, keeps preview/theme rows', () => {
+  it('hides the desktop-only new-diagram rows on mobile, keeps theme/cache rows', () => {
     Platform.isDesktopApp = false;
     const tab = new DrawioSettingTab({} as never, fakePlugin());
     tab.display();
     const names = rowNames(tab.containerEl);
     expect(names).not.toContain('新建图表位置');
     expect(names).not.toContain('新建图表文件夹');
-    expect(names).not.toContain('缓存大小上限');
+    expect(names).toContain('缓存文件个数上限');
     expect(names).toContain('跟随 Obsidian 主题');
   });
 
-  it('offers a 10–100 MB cache slider showing the saved value (default 15)', () => {
+  it('offers a 10–30 file cache slider showing the saved value (default 20)', () => {
     Platform.isDesktopApp = true;
     const tab = new DrawioSettingTab({} as never, fakePlugin());
     tab.display();
-    const slider = row(tab.containerEl, '缓存大小上限')
+    const slider = row(tab.containerEl, '缓存文件个数上限')
       .querySelector<HTMLInputElement>('input[type="range"]')!;
     expect(slider.min).toBe('10');
-    expect(slider.max).toBe('100');
-    expect(slider.value).toBe('15');
+    expect(slider.max).toBe('30');
+    expect(slider.value).toBe('20');
   });
 
   it('shows the saved cache limit, not the default, once the user changed it', () => {
     Platform.isDesktopApp = true;
     const plugin = fakePlugin();
-    plugin.settings.cacheLimitMB = 42;
+    plugin.settings.cacheLimitFiles = 25;
     const tab = new DrawioSettingTab({} as never, plugin);
     tab.display();
-    const slider = row(tab.containerEl, '缓存大小上限')
+    const slider = row(tab.containerEl, '缓存文件个数上限')
       .querySelector<HTMLInputElement>('input[type="range"]')!;
-    expect(slider.value).toBe('42');
+    expect(slider.value).toBe('25');
   });
 });

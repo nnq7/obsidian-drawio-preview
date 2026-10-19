@@ -56,8 +56,17 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   private viewportInitialized = false;
   private manuallyResized = false;
   private viewportHeight = 0;
+  /** 正在等预览框尺寸稳定（退出全屏后）：期间的 window resize 一律跳过。 */
+  private settling = false;
+  private settleTimer: number | null = null;
+  private settleObserver: ResizeObserver | null = null;
   private panStartX = 0;
   private panStartY = 0;
+  /** 拖拽开始时算好的内容缩放比：拖拽期间元素尺寸不变，不必每次 pointermove
+   *  都调 getBoundingClientRect（那会强制同步布局，高频拖动时每秒上百次）。 */
+  private panStartScale = 0;
+  /** 宿主是否支持 Fullscreen API；构造时算一次，别在每次 updateControls 里 duck-type。 */
+  private canFullscreen = false;
   private panStartBox: ViewBox | null = null;
   /** Watches a detached/hidden preview until layout gives it a real width. */
   private measureObserver: ResizeObserver | null = null;
@@ -75,6 +84,7 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.preview.addEventListener('wheel', this.onWheel, { passive: false });
     this.preview.addEventListener('pointerdown', this.onPanStart);
     this.addDocumentListeners(this.doc);
+    this.canFullscreen = typeof this.root.requestFullscreen === 'function';
   }
 
   get isActive(): boolean { return this.active; }
@@ -105,7 +115,9 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.viewportInitialized = false;
     // A link that pins `|400x300` owns its height; everything else is auto-fitted.
     this.manuallyResized = this.opts.initialHeight !== undefined;
-    this.deactivate();
+    // 翻页是同一次浏览的延续，必须保留激活态 —— 否则每次翻页都要重新点一下才能缩放/拖拽。
+    // 只结束可能残留在旧 SVG 上的拖拽（pointer 监听挂在 document 上，不能带到新 SVG）。
+    this.endPan();
     this.updateControls();
     this.initializeViewport();
   }
@@ -113,6 +125,9 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   activate(): void {
     if (this.disposed || !this.svg) return;
     this.rebindIfDocumentChanged();
+    // 宿主可能在我们构造之后才注入 Fullscreen API（测试替身就是这样），
+    // 所以在激活（低频）时重新探测一次，而不是每次 updateControls 都 duck-type。
+    this.canFullscreen = typeof this.root.requestFullscreen === 'function';
     this.initializeViewport();
     this.active = true;
     this.root.classList.add('drawio-interactive-active');
@@ -137,6 +152,7 @@ export class InteractiveViewerController extends MarkdownRenderChild {
       } catch { /* host denies fullscreen control */ }
     }
     this.deactivate();
+    this.disconnectSettle();
     this.root.classList.remove('drawio-interactive');
     this.root.classList.remove('drawio-interactive-fullscreen');
     this.root.removeEventListener('click', this.onRootClick);
@@ -278,6 +294,9 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.fullscreenButton.hidden = fullscreen;
     this.closeFullscreenButton.hidden = !fullscreen;
     this.closeFullscreenButton.disabled = !fullscreen;
+    // 退出全屏后按「尺寸稳定」重算高度（见 settleViewport）。进入全屏时不用做事：
+    // 全屏尺寸由 CSS 决定，内联高度本来就不变。
+    if (!fullscreen) this.settleViewport();
   };
 
   private onWheel = (event: WheelEvent): void => {
@@ -297,6 +316,12 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     if (base.width / current.width <= 1 + SCALE_EPSILON) return;
     event.preventDefault();
     event.stopPropagation();
+    const rect = this.svg!.getBoundingClientRect();
+    // preserveAspectRatio="meet" letterboxes the content, so pixels map to
+    // viewBox units through the rendered content scale, not the raw rect size.
+    this.panStartScale = rect.width > 0 && rect.height > 0
+      ? Math.min(rect.width / current.width, rect.height / current.height)
+      : 0;
     this.panStartX = event.clientX;
     this.panStartY = event.clientY;
     this.panStartBox = { ...current };
@@ -307,18 +332,13 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   };
 
   private onPanMove = (event: PointerEvent): void => {
-    const svg = this.svg;
     const base = this.baseBox;
     const start = this.panStartBox;
-    if (!svg || !base || !start) return;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
+    if (!base || !start) return;
     event.preventDefault();
-    // `preserveAspectRatio="meet"` letterboxes the content inside the client
-    // rect once the viewport aspect no longer matches the viewBox; pixel
-    // deltas convert to viewBox units through the rendered content scale,
-    // not the raw rect dimensions.
-    const scale = Math.min(rect.width / start.width, rect.height / start.height);
+    // Scale is measured once in onPanStart: the element keeps its size for the
+    // whole drag, so re-measuring every move would force a sync layout for nothing.
+    const scale = this.panStartScale;
     if (scale <= 0) return;
     this.currentBox = {
       x: clamp(
@@ -378,6 +398,9 @@ export class InteractiveViewerController extends MarkdownRenderChild {
 
   private onWindowResize = (): void => {
     if (this.manuallyResized) return;
+    // 退出全屏后的那波 resize 交给 settleViewport 统一收尾，这里不插一脚。
+    if (this.settling) return;
+    if (this.doc.fullscreenElement === this.root) return;
     this.initializeViewport(true);
   };
 
@@ -432,6 +455,39 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.measureObserver = null;
   }
 
+  /**
+   * 退出全屏后按「尺寸稳定」重算高度。
+   *
+   * 退出瞬间浏览器先派发 window resize、之后才完成笔记排版，此时量到的宽度还是
+   * 全屏宽度（实测 1278），据此算高度会把框写死成 1136。固定时间窗挡不住慢机器
+   * 上更长的排版；而 ResizeObserver 的回调本来就在布局完成后才触发，所以
+   * 「它不再变化」就等于布局真的稳了 —— 与机器快慢无关。
+   */
+  private settleViewport(): void {
+    const win = this.doc.defaultView;
+    if (!win || typeof win.ResizeObserver !== 'function') return;
+    this.disconnectSettle();
+    this.settling = true;
+    this.settleObserver = new win.ResizeObserver(() => {
+      if (this.settleTimer !== null) win.clearTimeout(this.settleTimer);
+      this.settleTimer = win.setTimeout(() => {
+        this.disconnectSettle();
+        if (!this.disposed) this.initializeViewport(true);
+      }, 120);
+    });
+    this.settleObserver.observe(this.preview);
+  }
+
+  private disconnectSettle(): void {
+    if (this.settleTimer !== null) {
+      this.doc.defaultView?.clearTimeout(this.settleTimer);
+      this.settleTimer = null;
+    }
+    this.settleObserver?.disconnect();
+    this.settleObserver = null;
+    this.settling = false;
+  }
+
   private applyViewport(svg: SVGSVGElement, height: number): void {
     this.disconnectMeasureObserver();
     this.preview.classList.add('drawio-interactive-viewport');
@@ -473,7 +529,6 @@ export class InteractiveViewerController extends MarkdownRenderChild {
       width,
       height,
     };
-    this.updateControls();
     this.scheduleViewBoxWrite();
   }
 
@@ -501,7 +556,6 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   private fit(): void {
     if (!this.baseBox) return;
     this.currentBox = { ...this.baseBox };
-    this.updateControls();
     this.scheduleViewBoxWrite();
   }
 
@@ -512,7 +566,7 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.zoomInButton.disabled = !ready || scale >= MAX_SCALE - SCALE_EPSILON;
     this.zoomOutButton.disabled = !ready || scale <= 1 + SCALE_EPSILON;
     this.fitButton.disabled = !ready || scale <= 1 + SCALE_EPSILON;
-    this.fullscreenButton.disabled = !ready || typeof this.root.requestFullscreen !== 'function';
+    this.fullscreenButton.disabled = !ready || !this.canFullscreen;
     this.editButton.disabled = !ready || this.opts.onEdit === undefined;
   }
 
@@ -525,6 +579,9 @@ export class InteractiveViewerController extends MarkdownRenderChild {
         const { x, y, width, height } = this.currentBox;
         this.svg.setAttribute('viewBox', `${x} ${y} ${width} ${height}`);
       }
+      // 和 viewBox 同一帧更新按钮状态：滚轮每秒可发上百个事件，逐个改
+      // classList/disabled 会让样式系统反复失效。
+      this.updateControls();
     });
   }
 

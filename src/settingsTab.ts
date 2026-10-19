@@ -1,8 +1,8 @@
 import { App, Platform, PluginSettingTab, Setting } from 'obsidian';
 import type DrawioPlugin from './main';
-import { cacheDir, pruneToLimit } from './preview/svgFileCache';
+import { cacheStore, pruneToCount } from './preview/svgFileCache';
 import {
-  CACHE_LIMIT_MB_MAX, CACHE_LIMIT_MB_MIN, cacheLimitBytes,
+  CACHE_LIMIT_FILES_MAX, CACHE_LIMIT_FILES_MIN, clampCacheLimitFiles,
   type NewDiagramLocation, type PreviewAppearance,
 } from './settings';
 
@@ -77,23 +77,22 @@ export class DrawioSettingTab extends PluginSettingTab {
           this.plugin.applyPreviewAppearance();
         }));
 
-    if (Platform.isDesktopApp) {
-      new Setting(containerEl)
-        .setName('缓存大小上限')
-        .setDesc(
-          '预览缓存的磁盘占用上限，超出后按最近使用时间删除最旧的缓存。' +
-          '只删缓存文件，不会动图表文件。',
-        )
-        .addSlider((sl) => sl
-          .setLimits(CACHE_LIMIT_MB_MIN, CACHE_LIMIT_MB_MAX, 1)
-          .setValue(s.cacheLimitMB)
-          .setDynamicTooltip()
-          .onChange((v) => {
-            s.cacheLimitMB = v;
-            save();
-            this.scheduleCachePrune();
-          }));
-    }
+    // 缓存不再限于桌面端：vault.adapter 在移动端同样能写，所以两端都要能调上限。
+    new Setting(containerEl)
+      .setName('缓存文件个数上限')
+      .setDesc(
+        '最多保留多少个预览缓存文件，超出后按写入时间删除最旧的。' +
+        '只删缓存文件，不会动图表文件。',
+      )
+      .addSlider((sl) => sl
+        .setLimits(CACHE_LIMIT_FILES_MIN, CACHE_LIMIT_FILES_MAX, 1)
+        .setValue(s.cacheLimitFiles)
+        .setDynamicTooltip()
+        .onChange((v) => {
+          s.cacheLimitFiles = v;
+          save();
+          this.scheduleCachePrune();
+        }));
   }
 
   /** Shrinking the budget should free space now, not on the next render. */
@@ -101,8 +100,8 @@ export class DrawioSettingTab extends PluginSettingTab {
     if (this.cachePruneTimer !== null) window.clearTimeout(this.cachePruneTimer);
     this.cachePruneTimer = window.setTimeout(() => {
       this.cachePruneTimer = null;
-      const dir = cacheDir(this.app, this.plugin.manifest.id);
-      void pruneToLimit(dir, cacheLimitBytes(this.plugin.settings.cacheLimitMB));
+      const store = cacheStore(this.app, this.plugin.manifest.id);
+      void pruneToCount(store, clampCacheLimitFiles(this.plugin.settings.cacheLimitFiles));
     }, 400);
   }
 }

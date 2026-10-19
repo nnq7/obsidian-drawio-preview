@@ -6,62 +6,41 @@
  *   `测试.drawio.1.a1b2c3d4`   ← 第 2 页
  *
  * 规则（用户定稿 ✓）：
- *  - 目录：`<vault>/<configDir>/plugins/<id>/cache/`，首次写时自动创建 ✓
+ *  - 存储：**`vault.adapter`**（桌面是 Node fs、移动端是 Capacitor，同一套 API ✓）
+ *  - 目录：`<configDir>/plugins/<id>/cache/`（vault 相对路径），首次写时自动创建 ✓
  *  - 容量：**15 MB** 上限，超限按 mtime 删最旧 ✓
  *  - **同一 `<文件名>.<页码>` 只保留最新 1 个** ✓（写新的时删掉旧的 CRC ✓）
  *  - 内容：`XMLSerializer` 序列化的 SVG 文本 ✓（**绝不用 innerHTML** ✗ —— 会带 HTML 实体坑）
- *  - **仅桌面端** ✓；移动端所有调用返回 null / 直接返回 ✓（不报错、不写盘 ✓）
  *  - 一切失败软失败 ✓（缓存坏了不能影响预览 ✓）
+ *
+ * 为什么不用 `fs`：`require('fs')` 只有桌面端存在，bundle 里出现它就等于宣告
+ * `isDesktopOnly: true`；而 `vault.adapter` 两端都有实现，缓存因此可以跨平台。
  */
-import { Platform } from 'obsidian';
-import type { App } from 'obsidian';
+import type { App, DataAdapter } from 'obsidian';
 
-/** 15 MB ✓ */
-export const CACHE_LIMIT_BYTES = 15 * 1024 * 1024;
-
-interface NodeFs {
-  promises: {
-    mkdir(p: string, o?: { recursive?: boolean }): Promise<unknown>;
-    readdir(p: string): Promise<string[]>;
-    readFile(p: string, enc: string): Promise<string>;
-    writeFile(p: string, d: string, enc: string): Promise<void>;
-    unlink(p: string): Promise<void>;
-    stat(p: string): Promise<{ size: number; mtimeMs: number }>;
-  };
-}
-interface NodePath {
-  join(...p: string[]): string;
-}
-
-function nodeMods(): { fs: NodeFs; path: NodePath } | null {
-  if (!Platform.isDesktopApp) return null;
-  const req = (window as unknown as { require?: (m: string) => unknown }).require;
-  if (!req) return null;
-  try {
-    return { fs: req('fs') as NodeFs, path: req('path') as NodePath };
-  } catch {
-    return null;
-  }
-}
+/** 默认最多保留 20 个缓存文件 ✓（按个数：只需读一次目录清单就能判断是否超限） */
+export const CACHE_LIMIT_FILES = 20;
 
 /**
- * 缓存目录绝对路径；非桌面端、无 fs、或拿不到仓库根路径时返回 null ✓。
- *
- * 全程软失败：缓存只是加速，任何环境差异（测试替身、非标准 adapter）都必须
- * 退化成「不缓存」，**绝不能让预览本身报错** ✗。
+ * 缓存位置：**vault 相对目录** + 能访问它的 adapter。
+ * adapter 拿不到（测试替身、异常环境）时由 {@link cacheStore} 返回 null，
+ * 调用方随即退化成「不缓存」，**绝不影响预览本身** ✗。
  */
-export function cacheDir(app: App | undefined, pluginId: string | undefined): string | null {
-  const mods = nodeMods();
-  if (!mods || !app || !pluginId) return null;
-  const vault = app.vault as unknown as { adapter?: { getBasePath?: () => string } };
+export interface CacheStore {
+  adapter: DataAdapter;
+  /** Vault 相对路径，例如 `.obsidian/plugins/<id>/cache`。 */
+  dir: string;
+}
+
+/** 拿不到仓库/adapter/configDir 时返回 null ✓。全程软失败。 */
+export function cacheStore(app: App | undefined, pluginId: string | undefined): CacheStore | null {
+  if (!app || !pluginId) return null;
+  const vault = app.vault as unknown as { adapter?: DataAdapter; configDir?: string };
   const adapter = vault?.adapter;
-  if (typeof adapter?.getBasePath !== 'function') return null;
-  try {
-    const base = adapter.getBasePath();
-    return base ? mods.path.join(base, app.vault.configDir, 'plugins', pluginId, 'cache') : null;
-  } catch {
-    return null;
-  }
+  const configDir = vault?.configDir;
+  if (!adapter || typeof adapter.read !== 'function') return null;
+  if (typeof configDir !== 'string' || !configDir) return null;
+  return { adapter, dir: `${configDir}/plugins/${pluginId}/cache` };
 }
 
 /** `<文件名>.<页码>.<CRC>` ✓ */
@@ -69,14 +48,31 @@ export function cacheFileName(sourceName: string, page: number, crcHex: string):
   return sourceName + '.' + page + '.' + crcHex;
 }
 
-export async function readCache(dir: string | null, fileName: string): Promise<string | null> {
-  if (!dir) return null;
-  const mods = nodeMods();
-  if (!mods) return null;
+async function listCacheFiles(store: CacheStore): Promise<string[]> {
+  try {
+    return (await store.adapter.list(store.dir)).files;
+  } catch {
+    return [];
+  }
+}
+
+function join(store: CacheStore, name: string): string {
+  return `${store.dir}/${name}`;
+}
+
+/** `adapter.list()` hands back full vault-relative paths; only the leaf matters. */
+function baseName(full: string): string {
+  const cut = full.lastIndexOf('/');
+  return cut === -1 ? full : full.slice(cut + 1);
+}
+
+export async function readCache(store: CacheStore | null, fileName: string): Promise<string | null> {
+  if (!store) return null;
   try {
     // A truncated file parses as a `parsererror` document, so the caller's SVG
-    // check already rejects it — no length heuristic needed here.
-    return (await mods.fs.promises.readFile(mods.path.join(dir, fileName), 'utf8')) || null;
+    // check already rejects it — no length heuristic needed here. (No `exists`
+    // probe either: a missing file simply rejects and lands in `catch`.)
+    return (await store.adapter.read(join(store, fileName))) || null;
   } catch {
     return null;
   }
@@ -85,77 +81,76 @@ export async function readCache(dir: string | null, fileName: string): Promise<s
 /**
  * 写入缓存，并清理：
  *  ① 同一 `<文件名>.<页码>` 的其他 CRC（只留最新 1 个 ✓）
- *  ② 超出 `limitBytes` 时按 mtime 删最旧 ✓
+ *  ② 超过 `limitFiles` 个时按 mtime 删最旧 ✓
  */
 export async function writeCache(
-  dir: string | null,
+  store: CacheStore | null,
   fileName: string,
   svgText: string,
-  limitBytes: number = CACHE_LIMIT_BYTES,
+  limitFiles: number = CACHE_LIMIT_FILES,
 ): Promise<void> {
-  if (!dir || !svgText) return;
-  const mods = nodeMods();
-  if (!mods) return;
-  const { fs, path } = mods;
+  if (!store || !svgText) return;
   try {
-    await fs.promises.mkdir(dir, { recursive: true });
-    await fs.promises.writeFile(path.join(dir, fileName), svgText, 'utf8');
+    if (!(await store.adapter.exists(store.dir))) await store.adapter.mkdir(store.dir);
+    await store.adapter.write(join(store, fileName), svgText);
+    // 目录只枚举一次，两个清理共用 —— 枚举在移动端是跨桥调用，不便宜。
+    const files = await listCacheFiles(store);
     // ① 同名前缀（文件名.页码.）的旧 CRC
     const prefix = fileName.slice(0, fileName.lastIndexOf('.') + 1);
-    await pruneMatching(dir, prefix, fileName);
-    // ② 容量上限
-    await pruneToLimit(dir, limitBytes);
+    await pruneSiblings(store, files, prefix, fileName);
+    // ② 个数上限
+    await pruneToCount(store, limitFiles, files);
   } catch {
     /* 软失败 ✓ */
   }
 }
 
 /** 删除同前缀但不同名的文件（同一 file+page 的旧版本 ✓）。 */
-async function pruneMatching(dir: string, prefix: string, keep: string): Promise<void> {
-  const mods = nodeMods();
-  if (!mods) return;
-  try {
-    const names = await mods.fs.promises.readdir(dir);
-    for (const n of names) {
-      if (n === keep) continue;
-      if (!n.startsWith(prefix)) continue;
-      try { await mods.fs.promises.unlink(mods.path.join(dir, n)); } catch { /* ignore */ }
-    }
-  } catch {
-    /* ignore */
+async function pruneSiblings(
+  store: CacheStore,
+  files: string[],
+  prefix: string,
+  keep: string,
+): Promise<void> {
+  for (const full of files) {
+    const name = baseName(full);
+    if (name === keep || !name.startsWith(prefix)) continue;
+    try { await store.adapter.remove(full); } catch { /* ignore */ }
   }
 }
 
-/** 按 mtime 从旧到新删，直到总量 ≤ 上限 ✓。 */
-export async function pruneToLimit(
-  dir: string | null,
-  limitBytes: number = CACHE_LIMIT_BYTES,
+/**
+ * 按 mtime 从旧到新删，直到文件数 ≤ `limitFiles` ✓。
+ *
+ * 只在**超限时**才 stat：文件数直接来自目录清单，所以正常情况下一次写入的
+ * 文件系统调用只有「1 次 write + 1 次 list」。旧实现按体积算，光是为了得到
+ * 总量就得 stat 每一个缓存文件（730 个文件就是 730 次）。
+ */
+export async function pruneToCount(
+  store: CacheStore | null,
+  limitFiles: number = CACHE_LIMIT_FILES,
+  /** Caller may pass an already-listed directory to avoid enumerating twice. */
+  knownFiles?: string[],
 ): Promise<number> {
-  if (!dir) return 0;
-  const mods = nodeMods();
-  if (!mods) return 0;
-  const { fs, path } = mods;
+  if (!store) return 0;
   try {
-    const names = await fs.promises.readdir(dir);
-    const entries: Array<{ name: string; size: number; mtimeMs: number }> = [];
-    let total = 0;
-    for (const n of names) {
+    const files = knownFiles ?? await listCacheFiles(store);
+    if (files.length <= limitFiles) return 0;
+    const entries: Array<{ path: string; mtime: number }> = [];
+    for (const full of files) {
       try {
-        const st = await fs.promises.stat(path.join(dir, n));
-        entries.push({ name: n, size: st.size, mtimeMs: st.mtimeMs });
-        total += st.size;
+        const st = await store.adapter.stat(full);
+        entries.push({ path: full, mtime: st ? st.mtime : 0 });
       } catch {
         /* ignore */
       }
     }
-    if (total <= limitBytes) return 0;
-    entries.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    if (entries.length <= limitFiles) return 0;
+    entries.sort((a, b) => a.mtime - b.mtime);
     let removed = 0;
-    for (const e of entries) {
-      if (total <= limitBytes) break;
+    for (let i = 0; i < entries.length - limitFiles; i++) {
       try {
-        await fs.promises.unlink(path.join(dir, e.name));
-        total -= e.size;
+        await store.adapter.remove(entries[i]!.path);
         removed++;
       } catch {
         /* ignore */

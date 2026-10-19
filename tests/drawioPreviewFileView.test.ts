@@ -113,7 +113,8 @@ describe('DrawioPreviewFileView', () => {
     expect(replacement.classList.contains('drawio-interactive-svg')).toBe(true);
     // 600px wide × (300/400) = 450px: the box re-fits to page 1's shape.
     expect(preview.style.height).toBe('450px');
-    expect(view.contentEl.classList.contains('drawio-interactive-active')).toBe(false);
+    // 同上：翻页不该把激活态清掉。
+    expect(view.contentEl.classList.contains('drawio-interactive-active')).toBe(true);
   });
 
   it('renders the page switcher for multi-page diagrams', () => {

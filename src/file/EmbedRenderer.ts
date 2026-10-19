@@ -1,7 +1,7 @@
 import { MarkdownPostProcessorContext, MarkdownRenderChild, Notice, Platform, TFile } from 'obsidian';
 import { renderPreviewCached, type PreviewCacheTarget } from '../preview/ViewerRenderer';
-import { cacheDir } from '../preview/svgFileCache';
-import { cacheLimitBytes } from '../settings';
+import { cacheStore } from '../preview/svgFileCache';
+import { clampCacheLimitFiles } from '../settings';
 import { ensureViewerLoaded } from '../preview/loadViewer';
 import { renderPageControl } from '../preview/pageControl';
 import { openWithDefaultApp } from '../preview/clickAction';
@@ -142,9 +142,11 @@ class DrawioFileEmbed extends MarkdownRenderChild {
 
       const preview = el.createDiv({ cls: 'drawio-preview' });
       applyEmbedSize(sizeHost, preview, size);
+      // 算一次，初次渲染与后续翻页共用（翻页不再重新构造缓存目标）。
+      const cacheTarget = previewCacheTarget(this.plugin);
       await renderPreviewCached(
         preview, xml, { ...this.plugin.previewOpts(), page: this.currentPage },
-        this.file.name, previewCacheTarget(this.plugin),
+        this.file.name, cacheTarget,
       );
       // The cache read is an await: a newer render may have superseded this one.
       if (generation !== this.renderGeneration) return;
@@ -157,7 +159,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
           initialPage: this.currentPage,
           onPageChange: (page) => {
             this.currentPage = page;
-            const cache = previewCacheTarget(this.plugin);
+            const cache = cacheTarget;
             // Flips are async now (cache read): chain them so a fast double
             // click cannot land out of order — the last click must win.
             this.flipChain = this.flipChain.then(async () => {
@@ -227,8 +229,8 @@ class DrawioFileEmbed extends MarkdownRenderChild {
  */
 function previewCacheTarget(plugin: DrawioPlugin): PreviewCacheTarget {
   return {
-    dir: cacheDir(plugin.app, plugin.manifest?.id),
-    limitBytes: cacheLimitBytes(plugin.settings.cacheLimitMB),
+    store: cacheStore(plugin.app, plugin.manifest?.id),
+    limitFiles: clampCacheLimitFiles(plugin.settings.cacheLimitFiles),
   };
 }
 

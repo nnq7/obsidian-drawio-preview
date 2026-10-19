@@ -127,7 +127,9 @@ describe('drawio embed — click behavior', () => {
     // Page 1 is 400x300 at a 600px width ⇒ 450px, i.e. the box re-fits instead of
     // keeping page 0's 300px.
     expect(preview.style.height).toBe('450px');
-    expect(containerEl.classList.contains('drawio-interactive-active')).toBe(false);
+    // 翻页后仍保持激活：翻页按钮就在工具栏里，翻完应当能直接缩放/拖拽，
+    // 而不是要求用户再点一次预览框。
+    expect(containerEl.classList.contains('drawio-interactive-active')).toBe(true);
     expect(containerEl.querySelectorAll('.drawio-interactive-toolbar')).toHaveLength(1);
   });
 

@@ -332,7 +332,8 @@ describe('InteractiveViewerController walking skeleton', () => {
     preview.appendChild(replacement);
     controller.bindSvg(replacement);
 
-    expect(controller.isActive).toBe(false);
+    // 翻页后保持激活：新 SVG 立刻可交互，不需要用户再点一次。
+    expect(controller.isActive).toBe(true);
     // 200px wide × (300/400) = 150px — the new page's shape, not the old 100px.
     expect(preview.style.height).toBe('150px');
     expect(replacement.getAttribute('viewBox')).toBe('10 20 400 300');

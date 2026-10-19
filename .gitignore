@@ -16,3 +16,13 @@ vitest.config.ts.timestamp-*.mjs
 # Local capture workspace for README screenshots (raw shots, helper scripts);
 # only the finished images under docs/assets/ are committed.
 demo-vault/
+
+# 仓库只放插件源码与发行所需文件（Obsidian 目录要求）：
+# AI 说明稿 / 设计稿 / 手动测试清单 / 本地跟踪器 / CI 配置 / 本地备份都不进仓库。
+docs/
+.scratch/
+.github/
+backup/
+CLAUDE.md
+CHANGELOG.md
+README.zh-CN.md

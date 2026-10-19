@@ -30,24 +30,23 @@
 .internal-embed[width][height] .drawio-preview svg {
   width: 100% !important; height: 100% !important;
 }
-/* "Preview alignment: Left" setting. Body-level (toggled by the plugin on
-   every window) so a settings change realigns already-rendered previews
-   without waiting for a re-render. */
-body.drawio-align-left .drawio-preview { text-align: left; }
-body.drawio-align-left .drawio-preview svg { margin: 0; }
-
 /* Previews whose click action is "Do nothing" shouldn't advertise clickability. */
 .drawio-codeblock.drawio-no-action, .drawio-embed.drawio-no-action,
 .drawio-dualformat-embed.drawio-no-action { cursor: default; }
 
 /* Interactive viewer viewport and controls. */
 .drawio-interactive .drawio-preview { user-select: none; }
-.drawio-interactive-active .drawio-interactive-viewport {
+/* The box is a card in both states: the radius (and the SVG clipping that comes
+   with it) plus a hairline border belong to the viewport itself, not to the
+   activated one — otherwise the diagram background paints square corners until
+   the preview is clicked. Activation is signalled by the toolbar, so the accent
+   ring is gone. */
+.drawio-interactive-viewport {
   position: relative;
   width: 100%;
   overflow: hidden;
   border-radius: 6px;
-  box-shadow: inset 0 0 0 2px var(--interactive-accent);
+  box-shadow: inset 0 0 0 1px var(--background-modifier-border);
 }
 .drawio-interactive-viewport .drawio-interactive-svg {
   width: 100%; height: 100%; max-width: none;
@@ -66,6 +65,15 @@ body.drawio-align-left .drawio-preview svg { margin: 0; }
 .drawio-interactive-toolbar:focus-within { opacity: 1; }
 .drawio-interactive-active.drawio-interactive-zoomed .drawio-interactive-viewport { cursor: grab; }
 .drawio-interactive-panning .drawio-interactive-viewport { cursor: grabbing; }
+/* Icon buttons are square and share one height with the text buttons (`+`/`−`)
+   so a row of mixed controls stays on one baseline. */
+.drawio-interactive-toolbar button.drawio-icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  align-self: stretch; width: 26px; padding: 0;
+}
+.drawio-interactive-toolbar button.drawio-icon-button svg {
+  width: 16px; height: 16px;
+}
 .drawio-interactive-toolbar button {
   margin: 0; padding: 3px 7px; font-size: var(--font-ui-small);
   transition: background-color .1s ease, color .1s ease, transform .06s ease;
@@ -84,13 +92,31 @@ body.drawio-align-left .drawio-preview svg { margin: 0; }
 @media (hover: none) {
   .drawio-interactive-toolbar { opacity: 1; }
 }
+/* Fullscreen is a temporary whole-screen view, so `![[x.drawio|500x400]]` must
+   not survive it — that link's width is an inline style on the preview. BOTH
+   dimensions are pinned here because the preview's height has always been
+   derived from its width (`height: auto !important`): a `|500` link stayed
+   500px wide on a 2195px screen, and an un-sized link grew to 2369px tall on a
+   1235px screen with nothing scrollable. With a fixed box the SVG's own default
+   `preserveAspectRatio="xMidYMid meet"` scales the diagram up and letterboxes
+   it. `flex` is kept for the cases where it does apply, but nothing here
+   depends on it: Obsidian's `.markdown-source-view.mod-cm6 .cm-content > *`
+   (specificity 0,3,0) forces `display: block` on Live Preview embeds. */
 .drawio-interactive-fullscreen {
   box-sizing: border-box; display: flex; flex-direction: column;
   width: 100%; height: 100%; padding: 12px;
   background: var(--background-primary);
 }
 .drawio-interactive-fullscreen .drawio-interactive-viewport {
-  flex: 1 1 auto; min-height: 0; height: auto !important;
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  width: 100% !important; max-width: none !important;
+  height: 100% !important;
+}
+/* The pager lives inside the toolbar (`attachPager`), so it never costs a row
+   below the diagram — a fullscreen viewport keeps the whole box. It shows only
+   while the preview is active, like the rest of the toolbar. */
+.drawio-interactive-toolbar .drawio-page-control {
+  margin: 0; gap: 2px; padding: 0 2px;
 }
 .drawio-error {
   padding: 8px 12px; color: var(--text-error);
@@ -135,14 +161,6 @@ body.drawio-align-left .drawio-preview svg { margin: 0; }
 /* Dual-format embeds in Live Preview: native <img>, no post-processor class. */
 .internal-embed[src*=".drawio.svg"],
 .internal-embed[src*=".drawio.png"] { cursor: pointer; }
-
-/* Old-Diagrams-plugin migration preview list. */
-.drawio-migrate-list {
-  max-height: 40vh; overflow: auto; margin: 0 0 12px;
-  padding-left: 1.2em; font-size: var(--font-ui-small);
-}
-.drawio-migrate-list li { margin: 4px 0; }
-.drawio-migrate-links { color: var(--text-muted); }
 
 /* ---- Modal editor (code blocks & embeds) ---- */
 .drawio-modal { width: 90vw; height: 90vh; max-width: none; }

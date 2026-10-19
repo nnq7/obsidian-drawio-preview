@@ -1,0 +1,30 @@
+{
+  "name": "obsidian-drawio",
+  "version": "0.1.0",
+  "description": "Embed, preview and edit drawio diagrams in Obsidian, fully offline.",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "fetch-drawio": "node scripts/fetch-drawio.mjs",
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "obsidian",
+    "drawio",
+    "diagrams"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@codemirror/view": "^6.38.6",
+    "@types/node": "^22.15.17",
+    "esbuild": "0.25.5",
+    "fflate": "^0.8.3",
+    "jsdom": "^25.0.1",
+    "obsidian": "latest",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.8"
+  }
+}

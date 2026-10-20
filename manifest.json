@@ -3,7 +3,7 @@
   "name": "Drawio Preview",
   "version": "1.2.0",
   "minAppVersion": "1.4.0",
-  "description": "只读预览版（基于 doge-liang/obsidian-drawio 改造，MIT 许可）：打开 .drawio 文件即预览，不含内嵌编辑",
+  "description": "Preview .drawio diagrams inline as read-only SVGs, with zoom, pan, and multi-page support.",
   "author": "nnq7",
   "authorUrl": "https://github.com/nnq7/obsidian-drawio-preview",
   "isDesktopOnly": false

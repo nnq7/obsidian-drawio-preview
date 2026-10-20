@@ -1,7 +1,7 @@
 {
   "id": "drawio-preview",
   "name": "Drawio Preview",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "minAppVersion": "1.4.10",
   "description": "Preview .drawio diagrams inline as read-only SVGs, with zoom, pan, and multi-page support.",
   "author": "nnq7",

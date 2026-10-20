@@ -9,7 +9,9 @@ import { openWithDefaultApp } from '../preview/clickAction';
 import { InteractiveViewerController } from '../preview/interactiveViewer';
 import { SectionLifecycle } from '../preview/sectionLifecycle';
 import { applyEmbedSize, findSizedEmbed, readEmbedSize, type EmbedSize } from '../preview/embedSize';
-import { getDiagramPages, resolvePageFromSubpath, ensureMxfile, type DiagramPage } from '../model/xmlUtils';
+import {
+  getDiagramPages, resolvePageFromSubpath, pageAnchor, ensureMxfile, type DiagramPage,
+} from '../model/xmlUtils';
 import { DRAWIO_FILE_EXT } from '../constants';
 import { pinEmbedPage } from './pinEmbedPage';
 import type DrawioPlugin from '../main';
@@ -214,11 +216,11 @@ class DrawioFileEmbed extends MarkdownRenderChild {
   /** Persist the shown page into the note's link; on success adopt the new
    *  subpath locally so a modify-triggered re-render agrees with the note. */
   private async pin(pages: DiagramPage[], page: number): Promise<void> {
-    const name = pages[page]?.name;
-    if (name === undefined || this.sourcePath === undefined) return;
-    const outcome = await pinEmbedPage(this.plugin.app, this.sourcePath, this.file, this.subpath, name);
+    if (this.sourcePath === undefined || page < 0 || page >= pages.length) return;
+    const anchor = pageAnchor(page);
+    const outcome = await pinEmbedPage(this.plugin.app, this.sourcePath, this.file, this.subpath, anchor);
     if (outcome === 'pinned') {
-      this.subpath = name;
+      this.subpath = anchor;
       await this.render();
     }
   }
@@ -340,8 +342,8 @@ async function renderEmbedInto(
         pin: !ctx.sourcePath ? undefined : {
           pinnedPage: currentPage,
           onPin: (page) => {
-            const name = pages[page]?.name;
-            if (name !== undefined) void pinEmbedPage(plugin.app, ctx.sourcePath, file, subpath, name);
+            if (page < 0 || page >= pages.length) return;
+            void pinEmbedPage(plugin.app, ctx.sourcePath, file, subpath, pageAnchor(page));
           },
         },
       });

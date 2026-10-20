@@ -1,6 +1,6 @@
 /** One embed link occurrence in a note, as reported by the metadata cache. */
 export interface EmbedSpan {
-  /** Full embed text, e.g. `![[a.drawio#Page-2|alias]]`. */
+  /** Full embed text, e.g. `![[a.drawio#p2|alias]]`. */
   original: string;
   /** Offset range of `original` within the note text. */
   start: number;

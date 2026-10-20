@@ -7,7 +7,11 @@ type PinOutcome = 'pinned' | 'no-match' | 'ambiguous' | 'unsupported-link' | 'er
 /**
  * Persist an embed's currently shown page into the note: rewrite the one
  * embed link that (a) resolves to `targetFile` and (b) carries the subpath
- * this embed instance was created with, so its subpath names `pageName`.
+ * this embed instance was created with, so its subpath becomes `anchor`.
+ *
+ * `anchor` is the `pN` ordinal from {@link pageAnchor}, never the diagram's page
+ * name — names are free-form text and cannot round-trip through a wikilink
+ * safely, while `pN` cannot contain link syntax at all.
  *
  * Never guesses: zero or multiple matching links leave the note untouched.
  * All user feedback (Notices) happens here; callers react to the outcome
@@ -18,13 +22,8 @@ export async function pinEmbedPage(
   sourcePath: string,
   targetFile: TFile,
   originalSubpath: string | undefined,
-  pageName: string,
+  anchor: string,
 ): Promise<PinOutcome> {
-  // A page name with link syntax in it can't round-trip through a wikilink.
-  if (/[#|[\]]/.test(pageName)) {
-    new Notice(fmt(strings().noticePageNameUnusable, { name: pageName }));
-    return 'error';
-  }
   const note = app.vault.getAbstractFileByPath(sourcePath);
   const cache = app.metadataCache.getCache(sourcePath);
   if (!(note instanceof TFile) || !cache?.embeds) {
@@ -51,7 +50,7 @@ export async function pinEmbedPage(
   const result: { outcome: PinOutcome } = { outcome: 'error' };
   try {
     await app.vault.process(note, (data) => {
-      const r = rewriteEmbedSubpath(data, candidates, originalSubpath, pageName);
+      const r = rewriteEmbedSubpath(data, candidates, originalSubpath, anchor);
       if (r.outcome !== 'ok') {
         result.outcome = r.outcome;
         return data;
@@ -66,7 +65,7 @@ export async function pinEmbedPage(
   const outcome = result.outcome;
 
   if (outcome === 'pinned') {
-    new Notice(fmt(strings().noticeLinkUpdated, { name: pageName }));
+    new Notice(fmt(strings().noticeLinkUpdated, { anchor }));
   } else if (outcome === 'no-match') {
     new Notice(strings().noticeLinkNotFound);
   } else if (outcome === 'ambiguous') {

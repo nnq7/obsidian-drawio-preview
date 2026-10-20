@@ -38,7 +38,7 @@ Drawio Preview renders `.drawio` diagrams inside Obsidian — both as inline emb
 ![[Diagram.drawio]]
 ![[Diagram.drawio|400]]
 ![[Diagram.drawio|400x300]]
-![[Diagram.drawio#Page-1]]
+![[Diagram.drawio#p1]]
 ```
 
 The size syntax is the same one Obsidian uses for images, so it behaves the way you already expect. Editing the number in the link resizes the preview immediately.
@@ -59,7 +59,7 @@ While zoomed, drag the diagram to pan. Click outside the preview to deactivate i
 
 ### Multi-page diagrams
 
-Use `‹` and `›` to flip pages. The pin button writes the page you are looking at into the embed's link, so the note keeps showing that page after a reload.
+Use `‹` and `›` to flip pages. The pin button writes the page you are looking at into the embed's link as a `#pN` anchor (`#p1` is the first page, `#p2` the second, and so on), so the note keeps showing that page after a reload.
 
 ### Create a new diagram
 

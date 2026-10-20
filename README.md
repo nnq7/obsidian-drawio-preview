@@ -1,7 +1,8 @@
 # Drawio Preview
 
 obsidian 笔记里的 drawio 图表预览插件：打开 `.drawio` 即刻出图，点击后可缩放、拖动、全屏。
-<img height="520" alt="image" src="https://github.com/user-attachments/assets/f8ab32ef-5b46-4b19-b954-515b50f80e5b" />
+<img width="1080" alt="动画2" src="https://github.com/user-attachments/assets/c70cce74-0450-41e3-a9e8-8aeb98738f99" />
+
 - **只读预览**：内置drawio预览内核，改图仍用本地 drawio 软件 —— 预览框的「编辑」按钮直接用默认应用打开文件。多页图表可翻页。
 - **预览缓存**：首次打开要渲染几秒，之后命中缓存直接出图、**不再加载 drawio 内核**，防止加载内核导致笔记假死无法编辑。
 - **内核预热**：「编辑」时自动后台预加载内核，下次预览更快。

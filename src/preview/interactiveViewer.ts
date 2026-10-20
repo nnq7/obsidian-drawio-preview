@@ -498,7 +498,7 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   }
 
   private setViewportHeight(height: number): void {
-    this.preview.style.height = `${height}px`;
+    this.preview.setCssStyles({ height: `${height}px` });
   }
 
   private zoomBy(factor: number, clientX?: number, clientY?: number): void {

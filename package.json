@@ -20,8 +20,11 @@
   "license": "MIT",
   "devDependencies": {
     "@codemirror/view": "^6.38.6",
+    "@eslint/json": "^0.14.0",
     "@types/node": "^22.15.17",
     "esbuild": "0.25.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "^0.4.2",
     "fflate": "^0.8.3",
     "jsdom": "^25.0.1",
     "obsidian": "latest",

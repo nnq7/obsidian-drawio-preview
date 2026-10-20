@@ -200,3 +200,7 @@
 .drawio-folder-row .drawio-folder-input {
   width: 260px;
 }
+
+/* A link that pins only a width caps the preview at the pane, exactly like a
+   native image. Toggled from JS so no inline style is needed. */
+.drawio-preview.drawio-preview-width-capped { max-width: 100%; }

@@ -60,6 +60,9 @@ export function readEmbedSize(embedEl: HTMLElement | null): EmbedSize | null {
  * host's height would clip a user drag-resize. Width goes on both, because the
  * block-level host would otherwise stay full width.
  */
+/* Static "cap at pane width" styling lives in CSS, not inline styles. */
+const WIDTH_CAPPED_CLASS = 'drawio-preview-width-capped';
+
 export function applyEmbedSize(
   embedEl: HTMLElement | null,
   previewEl: HTMLElement,
@@ -71,8 +74,7 @@ export function applyEmbedSize(
     // 和原生图片一样：宽度是「上限」——内容元素带 max-width:100%，
     // 笔记窗口变窄时预览跟着缩，而不是死死钉在链接里写的那个像素值。
     setDimension(previewEl, 'width', size.width);
-    if (size.width !== null) previewEl.style.setProperty('max-width', '100%');
-    else previewEl.style.removeProperty('max-width');
+    previewEl.toggleClass(WIDTH_CAPPED_CLASS, size.width !== null);
     setDimension(previewEl, 'height', size.height);
     return;
   }
@@ -89,8 +91,8 @@ export function applyEmbedSize(
 }
 
 function setDimension(el: HTMLElement, property: 'width' | 'height', px: number | null): void {
-  if (px === null) el.style.removeProperty(property);
-  else el.style.setProperty(property, `${px}px`);
+  // Empty string removes the property, same as removeProperty().
+  el.setCssProps({ [property]: px === null ? '' : `${px}px` });
 }
 
 function positivePx(raw: string | null): number | null {

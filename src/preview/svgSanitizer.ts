@@ -115,7 +115,11 @@ function parseInert(svg: string): HTMLElement {
  */
 export function sanitizeSvgToNode(svg: string, targetDoc: Document = activeDocument): Node {
   const body = parseInert(svg);
-  const frag = targetDoc.createDocumentFragment();
+  // `createFragment` is an Obsidian extension on Window; the typings type
+  // `Document.win` as the plain DOM Window, hence the cast. Calling it on the
+  // target window (not `activeDocument`) keeps popout previews in the right doc.
+  const win = targetDoc.win as unknown as { createFragment(): DocumentFragment };
+  const frag = win.createFragment();
   for (const child of Array.from(body.childNodes)) frag.appendChild(targetDoc.importNode(child, true));
   return frag;
 }

@@ -1,0 +1,4 @@
+# The vendored drawio viewer is a byte-for-byte copy of the upstream release and
+# is inlined into main.js at build time. Line-ending conversion would make a CI
+# build bundle different bytes than a local one, so keep it exactly as fetched.
+src/preview/viewer.min.txt -text

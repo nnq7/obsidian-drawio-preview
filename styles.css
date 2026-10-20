@@ -28,7 +28,7 @@
    the aspect, leaves margin) — without this the diagram keeps its natural
    height and the fixed-height box grows a scrollbar. */
 .internal-embed[width][height] .drawio-preview svg {
-  width: 100% !important; height: 100% !important;
+  width: 100%; height: 100%;
 }
 /* Previews whose click action is "Do nothing" shouldn't advertise clickability. */
 .drawio-codeblock.drawio-no-action, .drawio-embed.drawio-no-action,
@@ -88,7 +88,7 @@
   color: var(--text-on-accent); background: var(--interactive-accent);
   transform: scale(.94);
 }
-.drawio-interactive-toolbar button[hidden] { display: none !important; }
+.drawio-interactive-toolbar button[hidden] { display: none; }
 @media (hover: none) {
   .drawio-interactive-toolbar { opacity: 1; }
 }

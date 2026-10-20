@@ -1,10 +1,10 @@
 {
   "id": "drawio-preview",
   "name": "Drawio Preview",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "minAppVersion": "1.4.0",
   "description": "Preview .drawio diagrams inline as read-only SVGs, with zoom, pan, and multi-page support.",
   "author": "nnq7",
-  "authorUrl": "https://github.com/nnq7/obsidian-drawio-preview",
+  "authorUrl": "https://github.com/nnq7",
   "isDesktopOnly": false
 }

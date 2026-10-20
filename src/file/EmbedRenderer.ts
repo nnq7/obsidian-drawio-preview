@@ -2,6 +2,7 @@ import { MarkdownPostProcessorContext, MarkdownRenderChild, Notice, Platform, TF
 import { renderPreviewCached, type PreviewCacheTarget } from '../preview/ViewerRenderer';
 import { cacheStore } from '../preview/svgFileCache';
 import { clampCacheLimitFiles } from '../settings';
+import { strings } from '../i18n';
 import { ensureViewerLoaded } from '../preview/loadViewer';
 import { renderPageControl } from '../preview/pageControl';
 import { openWithDefaultApp } from '../preview/clickAction';
@@ -118,7 +119,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
     // time to fill them in.
     const sizeHost = findSizedEmbed(el);
     let initialHeight: number | null = readEmbedSize(sizeHost)?.height ?? null;
-    el.setAttribute('title', Platform.isDesktopApp ? '点击以浏览图表' : 'Drawio 图表');
+    el.setAttribute('title', Platform.isDesktopApp ? strings().titleClickToView : strings().titleDiagram);
     try {
       const xml = await this.plugin.app.vault.read(this.file);
       if (generation !== this.renderGeneration) return;
@@ -202,7 +203,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
         e.preventDefault();
         e.stopPropagation();
         if (!Platform.isDesktopApp) {
-          new Notice('Drawio: 交互式查看器仅在桌面端可用');
+          new Notice(strings().noticeDesktopOnly);
         }
       });
     }
@@ -266,10 +267,10 @@ function registerEmbedPostProcessor(plugin: DrawioPlugin) {
       const file = plugin.app.metadataCache.getFirstLinkpathDest(path, ctx.sourcePath);
       if (!(file instanceof TFile)) continue;
       span.dataset.drawioEmbed = '1';
-      span.setAttribute('title', Platform.isDesktopApp ? '点击以浏览图表' : 'Drawio 图表');
+      span.setAttribute('title', Platform.isDesktopApp ? strings().titleClickToView : strings().titleDiagram);
       span.addEventListener('click', () => {
         if (!Platform.isDesktopApp) {
-          new Notice('Drawio: 交互式查看器仅在桌面端可用');
+          new Notice(strings().noticeDesktopOnly);
         }
         // Desktop clicks activate the interactive viewer (its own listeners).
       });

@@ -1,4 +1,5 @@
 import { App, Notice } from 'obsidian';
+import { strings } from '../i18n';
 
 /**
  * Open a vault file in the OS default application. `App.openWithDefaultApp`
@@ -15,6 +16,6 @@ export function openWithDefaultApp(app: App, path: string): void {
   if (typeof internal.openWithDefaultApp === 'function') {
     internal.openWithDefaultApp(path);
   } else {
-    new Notice('Drawio: 当前 Obsidian 版本无法用默认应用打开文件。');
+    new Notice(strings().noticeNoDefaultApp);
   }
 }

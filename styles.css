@@ -194,3 +194,9 @@
   background: var(--background-secondary); color: var(--text-muted);
   font-size: var(--font-ui-small);
 }
+
+/* The folder box belongs to the location dropdown above it: it has no name of
+   its own, so it needs a usable width and a small indent to read as a sub-row. */
+.drawio-folder-row .drawio-folder-input {
+  width: 260px;
+}

@@ -1,6 +1,7 @@
 import { Notice, TFile, TFolder } from 'obsidian';
 import type DrawioPlugin from '../main';
-import type { DrawioSettings } from '../settings';
+import { resolveAttachmentFolder, type DrawioSettings } from '../settings';
+import { fmt, strings } from '../i18n';
 import { EMPTY_DIAGRAM } from '../constants';
 
 /** Normalize a vault folder path: forward slashes, no empty/leading/trailing segments. */
@@ -11,15 +12,19 @@ function normalizeFolderPath(path: string): string {
 /**
  * Resolve the target folder ('' = vault root) for a new diagram from the
  * location setting and the active file's parent path (null when no file is open).
+ *
+ * `attachmentConfig` is Obsidian's raw `attachmentFolderPath` value, resolved
+ * against `activeFileParentPath` only for the `attachment` branch.
  */
 export function resolveNewDiagramFolder(
   settings: Pick<DrawioSettings, 'newDiagramLocation' | 'newDiagramFolder'>,
   activeFileParentPath: string | null,
+  attachmentConfig = '',
 ): string {
   switch (settings.newDiagramLocation) {
     case 'current': return normalizeFolderPath(activeFileParentPath ?? '');
     case 'folder': return normalizeFolderPath(settings.newDiagramFolder);
-    default: return '';
+    default: return resolveAttachmentFolder(attachmentConfig, activeFileParentPath);
   }
 }
 
@@ -32,7 +37,7 @@ async function ensureFolderExists(plugin: DrawioPlugin, path: string): Promise<b
     const existing = plugin.app.vault.getAbstractFileByPath(current);
     if (existing instanceof TFolder) continue;
     if (existing) {
-      new Notice(`Drawio: 「${current}」已存在，但它不是文件夹。`);
+      new Notice(fmt(strings().noticeFolderNotAFolder, { path: current }));
       return false;
     }
     await plugin.app.vault.createFolder(current);
@@ -64,7 +69,7 @@ export function uniqueDiagramPath(plugin: DrawioPlugin, folder: string): string 
  * `drawio:新建图表` command embeds it at the cursor instead. `folderOverride`
  * (the folder the user right-clicked) wins over the location setting.
  */
-export async function createDiagramFile(
+async function createDiagramFile(
   plugin: DrawioPlugin,
   folderOverride?: TFolder,
 ): Promise<TFile | null> {
@@ -74,12 +79,12 @@ export async function createDiagramFile(
       folder = normalizeFolderPath(folderOverride.path);
     } else {
       const parent = plugin.app.workspace.getActiveFile()?.parent?.path ?? null;
-      folder = resolveNewDiagramFolder(plugin.settings, parent);
+      folder = resolveNewDiagramFolder(plugin.settings, parent, plugin.attachmentFolderConfig());
       if (!(await ensureFolderExists(plugin, folder))) return null;
     }
     return await plugin.app.vault.create(uniqueDiagramPath(plugin, folder), EMPTY_DIAGRAM);
   } catch (err) {
-    new Notice(`Drawio: 无法创建图表 —— ${String(err)}`);
+    new Notice(fmt(strings().noticeCannotCreate, { error: String(err) }));
     return null;
   }
 }

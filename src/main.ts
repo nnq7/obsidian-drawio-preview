@@ -1,5 +1,8 @@
-import { Platform, Plugin } from 'obsidian';
-import { DrawioSettings, DEFAULT_SETTINGS, PreviewAppearance } from './settings';
+import { moment, Platform, Plugin } from 'obsidian';
+import {
+  DrawioSettings, DEFAULT_SETTINGS, PreviewAppearance, normalizeNewDiagramLocation,
+} from './settings';
+import { languageFromLocale, setLanguage } from './i18n';
 import type { RenderOptions } from './preview/ViewerRenderer';
 import { DRAWIO_VIEW_TYPE, DRAWIO_FILE_EXT } from './constants';
 import { observeEmbedSizes } from './preview/embedSize';
@@ -69,10 +72,34 @@ export default class DrawioPlugin extends Plugin {
   async loadSettings() {
     const saved = (await this.loadData()) as Partial<DrawioSettings> | null;
     this.settings = Object.assign({}, DEFAULT_SETTINGS, saved ?? {});
+    // `root` was retired in favour of `attachment`; an empty folder target is
+    // no target at all. Both migrate to `attachment`.
+    this.settings.newDiagramLocation = normalizeNewDiagramLocation(
+      saved?.newDiagramLocation,
+      saved?.newDiagramFolder,
+    );
+    // Locale follows Obsidian's own UI language, read once at startup: Chinese
+    // gets a translated UI, every other language falls back to English.
+    setLanguage(languageFromLocale(moment.locale()));
   }
 
   async saveSettings() {
     await this.saveData(this.settings);
+  }
+
+  /**
+   * Obsidian's raw `attachmentFolderPath` setting (`'/'`, `'./'`, `'./sub'`,
+   * `'sub'`). `Vault.getConfig` is not in the public typings but is the only way
+   * to read it; a missing or throwing implementation degrades to '' (vault root).
+   */
+  attachmentFolderConfig(): string {
+    const vault = this.app.vault as unknown as { getConfig?: (key: string) => unknown };
+    try {
+      const value = vault.getConfig?.('attachmentFolderPath');
+      return typeof value === 'string' ? value : '';
+    } catch {
+      return '';
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import { Platform, TextFileView, WorkspaceLeaf } from 'obsidian';
 import { DRAWIO_VIEW_TYPE } from '../constants';
+import { strings } from '../i18n';
 import { renderPreview } from './ViewerRenderer';
 import { renderPageControl } from './pageControl';
 import { openWithDefaultApp } from './clickAction';
@@ -46,7 +47,7 @@ export class DrawioPreviewFileView extends TextFileView {
     c.addClass('drawio-preview-file-view');
 
     if (Platform.isDesktopApp) {
-      c.setAttribute('title', '点击以浏览图表');
+      c.setAttribute('title', strings().titleClickToView);
       c.toggleClass('drawio-clickable', true);
     } else {
       c.createDiv({

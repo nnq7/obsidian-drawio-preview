@@ -1,7 +1,8 @@
 import { setIcon } from 'obsidian';
 import type { DiagramPage } from '../model/xmlUtils';
+import { strings } from '../i18n';
 
-export interface PageControlOptions {
+interface PageControlOptions {
   pages: DiagramPage[];
   initialPage: number;
   onPageChange: (page: number) => void;
@@ -31,8 +32,8 @@ export function renderPageControl(container: HTMLElement, opts: PageControlOptio
   if (pin) {
     pinBtn = container.createEl('button', { cls: 'drawio-pin' });
     setIcon(pinBtn, 'pin');
-    pinBtn.setAttribute('aria-label', '将当前页面固定在笔记中');
-    pinBtn.setAttribute('title', '将当前页面固定在笔记中');
+    pinBtn.setAttribute('aria-label', strings().pinCurrentPage);
+    pinBtn.setAttribute('title', strings().pinCurrentPage);
   }
 
   function update(): void {

@@ -11,7 +11,7 @@ export interface EmbedSpan {
   subpath: string | undefined;
 }
 
-export type PinRewrite =
+type PinRewrite =
   | { outcome: 'ok'; text: string }
   | { outcome: 'no-match' }
   | { outcome: 'ambiguous' }

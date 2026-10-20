@@ -26,3 +26,7 @@ backup/
 CLAUDE.md
 CHANGELOG.md
 README.zh-CN.md
+
+# 测试与测试配置只在本地保留：仓库交付的是可运行的插件源码 + 发行文件。
+tests/
+vitest.config.ts

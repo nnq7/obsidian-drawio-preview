@@ -1,10 +1,46 @@
-import { App, Platform, PluginSettingTab, Setting } from 'obsidian';
+import { AbstractInputSuggest, App, Platform, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import type DrawioPlugin from './main';
 import { cacheStore, pruneToCount } from './preview/svgFileCache';
 import {
   CACHE_LIMIT_FILES_MAX, CACHE_LIMIT_FILES_MIN, clampCacheLimitFiles,
   type NewDiagramLocation, type PreviewAppearance,
 } from './settings';
+import { strings } from './i18n';
+
+/**
+ * Folder suggestions for the "specified folder" box. Obsidian ships this as
+ * `AbstractInputSuggest` — the same widget its own "attachment folder" field
+ * uses, so typing behaves identically to a native setting.
+ */
+class FolderSuggest extends AbstractInputSuggest<TFolder> {
+  constructor(
+    app: App,
+    inputEl: HTMLInputElement,
+    private readonly onPick: (path: string) => void,
+  ) {
+    super(app, inputEl);
+  }
+
+  protected getSuggestions(query: string): TFolder[] {
+    const needle = query.trim().toLowerCase();
+    const folders = this.app.vault.getAllLoadedFiles()
+      .filter((file): file is TFolder => file instanceof TFolder);
+    const matches = needle
+      ? folders.filter((folder) => folder.path.toLowerCase().includes(needle))
+      : folders;
+    return matches.slice(0, 20);
+  }
+
+  renderSuggestion(folder: TFolder, el: HTMLElement): void {
+    el.setText(folder.path || '/');
+  }
+
+  selectSuggestion(folder: TFolder): void {
+    this.setValue(folder.path);
+    this.onPick(folder.path);
+    this.close();
+  }
+}
 
 /**
  * Settings tab, rendered with the imperative `display()` API.
@@ -24,39 +60,52 @@ export class DrawioSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     const s = this.plugin.settings;
+    const L = strings();
     const save = () => { void this.plugin.saveSettings(); };
 
     if (Platform.isDesktopApp) {
-      new Setting(containerEl)
-        .setName('新建图表位置')
-        .setDesc(
-          '命令和功能区按钮新建图表的位置。文件夹右键菜单始终在点击的文件夹中创建。',
-        )
-        .addDropdown((d) => d
-          .addOption('root', '仓库根目录')
-          .addOption('current', '与当前笔记相同的文件夹')
-          .addOption('folder', '下方指定的文件夹')
-          .setValue(s.newDiagramLocation)
-          .onChange((v) => { s.newDiagramLocation = v as NewDiagramLocation; save(); this.display(); }));
+      const isFolder = s.newDiagramLocation === 'folder';
 
-      // Target folder, only relevant when the location is a fixed folder.
-      if (s.newDiagramLocation === 'folder') {
-        new Setting(containerEl)
-          .setName('新建图表文件夹')
-          .setDesc('若不存在则自动创建。')
-          .addText((t) => t
-            .setPlaceholder('Diagrams/drawio')
+      new Setting(containerEl)
+        .setName(L.newDiagramLocationName)
+        .setDesc(L.newDiagramLocationDesc)
+        .addDropdown((d) => d
+          .addOption('attachment', L.newDiagramLocationAttachment)
+          .addOption('current', L.newDiagramLocationCurrent)
+          .addOption('folder', L.newDiagramLocationFolder)
+          .setValue(s.newDiagramLocation)
+          .onChange((value) => {
+            s.newDiagramLocation = value as NewDiagramLocation;
+            save();
+            // Re-render so the folder box below flips between editable/disabled.
+            this.display();
+          }));
+
+      // The folder box sits directly under the dropdown and belongs to it: it is
+      // only editable when the dropdown points at `folder`.
+      const folderRow = new Setting(containerEl)
+        .setDesc(L.newDiagramFolderDesc)
+        .addText((text) => {
+          text
+            .setPlaceholder(L.newDiagramFolderPlaceholder)
             .setValue(s.newDiagramFolder)
-            .onChange((v) => { s.newDiagramFolder = v; save(); }));
-      }
+            .setDisabled(!isFolder)
+            .onChange((value) => { s.newDiagramFolder = value; save(); });
+          text.inputEl.addClass('drawio-folder-input');
+          if (isFolder) {
+            new FolderSuggest(this.app, text.inputEl, (path) => {
+              text.setValue(path);
+              s.newDiagramFolder = path;
+              save();
+            });
+          }
+        });
+      folderRow.settingEl.addClass('drawio-folder-row');
     }
 
     new Setting(containerEl)
-      .setName('跟随 Obsidian 主题')
-      .setDesc(
-        '打开时预览外观自动跟随 Obsidian 当前的浅色 / 深色主题，下方下拉框不可用；' +
-        '关闭时使用下拉框选择的外观。',
-      )
+      .setName(L.appearanceName)
+      .setDesc(L.appearanceDesc)
       .addToggle((t) => t
         .setValue(s.followObsidianTheme)
         .onChange((v) => {
@@ -66,9 +115,9 @@ export class DrawioSettingTab extends PluginSettingTab {
           this.plugin.applyPreviewAppearance();
         }))
       .addDropdown((d) => d
-        .addOption('light', '浅色')
-        .addOption('dark', '深色')
-        .addOption('transparent', '透明')
+        .addOption('light', L.appearanceLight)
+        .addOption('dark', L.appearanceDark)
+        .addOption('transparent', L.appearanceTransparent)
         .setValue(s.previewAppearance)
         .setDisabled(s.followObsidianTheme)
         .onChange((v) => {
@@ -79,11 +128,8 @@ export class DrawioSettingTab extends PluginSettingTab {
 
     // 缓存不再限于桌面端：vault.adapter 在移动端同样能写，所以两端都要能调上限。
     new Setting(containerEl)
-      .setName('缓存文件个数上限')
-      .setDesc(
-        '最多保留多少个预览缓存文件，超出后按写入时间删除最旧的。' +
-        '只删缓存文件，不会动图表文件。',
-      )
+      .setName(L.cacheName)
+      .setDesc(L.cacheDesc)
       .addSlider((sl) => sl
         .setLimits(CACHE_LIMIT_FILES_MIN, CACHE_LIMIT_FILES_MAX, 1)
         .setValue(s.cacheLimitFiles)

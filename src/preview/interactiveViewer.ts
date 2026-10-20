@@ -1,6 +1,7 @@
 import { MarkdownRenderChild, setIcon } from 'obsidian';
+import { strings } from '../i18n';
 
-export interface InteractiveViewerOptions {
+interface InteractiveViewerOptions {
   /** A height already resolved by the caller (e.g. a link-pinned size). */
   initialHeight?: number;
   onEdit?: () => void;
@@ -55,7 +56,6 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   private doc: Document;
   private viewportInitialized = false;
   private manuallyResized = false;
-  private viewportHeight = 0;
   /** 正在等预览框尺寸稳定（退出全屏后）：期间的 window resize 一律跳过。 */
   private settling = false;
   private settleTimer: number | null = null;
@@ -216,22 +216,23 @@ export class InteractiveViewerController extends MarkdownRenderChild {
 
   private createToolbar(): HTMLElement {
     const toolbar = this.root.createDiv({ cls: 'drawio-interactive-toolbar' });
-    toolbar.setAttribute('aria-label', '交互式查看器控件');
-    this.zoomInButton = this.createButton(toolbar, '+', '放大', () => this.zoomBy(BUTTON_ZOOM_STEP));
-    this.zoomOutButton = this.createButton(toolbar, '−', '缩小', () => this.zoomBy(1 / BUTTON_ZOOM_STEP));
+    const L = strings();
+    toolbar.setAttribute('aria-label', L.toolbarLabel);
+    this.zoomInButton = this.createButton(toolbar, '+', L.btnZoomIn, () => this.zoomBy(BUTTON_ZOOM_STEP));
+    this.zoomOutButton = this.createButton(toolbar, '−', L.btnZoomOut, () => this.zoomBy(1 / BUTTON_ZOOM_STEP));
     this.fitButton = this.createButton(
-      toolbar, '适应', '适应图表', () => this.fit(), { icon: 'rotate-cw', fallback: '适应' },
+      toolbar, L.btnFit, L.btnFitLabel, () => this.fit(), { icon: 'rotate-cw', fallback: L.btnFit },
     );
     this.editButton = this.createButton(
-      toolbar, '编辑', '编辑图表', () => { void this.runEditAction(); },
-      { icon: 'pencil', fallback: '编辑' },
+      toolbar, L.btnEdit, L.btnEditLabel, () => { void this.runEditAction(); },
+      { icon: 'pencil', fallback: L.btnEdit },
     );
     this.fullscreenButton = this.createButton(
-      toolbar, '全屏', '进入全屏', () => { void this.enterFullscreen(); },
-      { icon: 'maximize', fallback: '全屏' },
+      toolbar, L.btnFullscreen, L.btnFullscreenLabel, () => { void this.enterFullscreen(); },
+      { icon: 'maximize', fallback: L.btnFullscreen },
     );
     this.closeFullscreenButton = this.createButton(
-      toolbar, '×', '退出全屏', () => { void this.exitFullscreen(); },
+      toolbar, '×', L.btnExitFullscreen, () => { void this.exitFullscreen(); },
       { icon: 'minimize', fallback: '×' },
     );
     this.closeFullscreenButton.hidden = true;
@@ -497,7 +498,6 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   }
 
   private setViewportHeight(height: number): void {
-    this.viewportHeight = height;
     this.preview.style.height = `${height}px`;
   }
 

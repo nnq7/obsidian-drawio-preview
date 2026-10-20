@@ -1,7 +1,8 @@
 import { App, Notice, TFile, parseLinktext } from 'obsidian';
 import { rewriteEmbedSubpath, type EmbedSpan } from '../model/embedLink';
+import { fmt, strings } from '../i18n';
 
-export type PinOutcome = 'pinned' | 'no-match' | 'ambiguous' | 'unsupported-link' | 'error';
+type PinOutcome = 'pinned' | 'no-match' | 'ambiguous' | 'unsupported-link' | 'error';
 
 /**
  * Persist an embed's currently shown page into the note: rewrite the one
@@ -21,13 +22,13 @@ export async function pinEmbedPage(
 ): Promise<PinOutcome> {
   // A page name with link syntax in it can't round-trip through a wikilink.
   if (/[#|[\]]/.test(pageName)) {
-    new Notice(`Drawio: 页面名称「${pageName}」无法用于链接（包含 #、| 或方括号）。`);
+    new Notice(fmt(strings().noticePageNameUnusable, { name: pageName }));
     return 'error';
   }
   const note = app.vault.getAbstractFileByPath(sourcePath);
   const cache = app.metadataCache.getCache(sourcePath);
   if (!(note instanceof TFile) || !cache?.embeds) {
-    new Notice('Drawio: 无法读取嵌入所在的笔记 —— 页面未固定。');
+    new Notice(strings().noticeNoteUnreadable);
     return 'error';
   }
 
@@ -59,19 +60,19 @@ export async function pinEmbedPage(
       return r.text;
     });
   } catch (err) {
-    new Notice(`Drawio: 更新笔记失败 —— ${String(err)}`);
+    new Notice(fmt(strings().noticeUpdateNoteFailed, { error: String(err) }));
     return 'error';
   }
   const outcome = result.outcome;
 
   if (outcome === 'pinned') {
-    new Notice(`Drawio: 链接已更新至页面「${pageName}」。`);
+    new Notice(fmt(strings().noticeLinkUpdated, { name: pageName }));
   } else if (outcome === 'no-match') {
-    new Notice('Drawio: 在笔记中找不到该嵌入的链接 —— 页面未固定。');
+    new Notice(strings().noticeLinkNotFound);
   } else if (outcome === 'ambiguous') {
-    new Notice('Drawio: 有多条指向此文件且页面相同的链接 —— 请手动修改笔记中的子路径。');
+    new Notice(strings().noticeDuplicateLinks);
   } else if (outcome === 'unsupported-link') {
-    new Notice('Drawio: 该嵌入使用的是 Markdown 风格链接 —— 请手动修改笔记中的页面。');
+    new Notice(strings().noticeMarkdownLink);
   }
   return outcome;
 }

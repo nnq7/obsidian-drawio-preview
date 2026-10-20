@@ -8,7 +8,7 @@
  * 规则（用户定稿 ✓）：
  *  - 存储：**`vault.adapter`**（桌面是 Node fs、移动端是 Capacitor，同一套 API ✓）
  *  - 目录：`<configDir>/plugins/<id>/cache/`（vault 相对路径），首次写时自动创建 ✓
- *  - 容量：**15 MB** 上限，超限按 mtime 删最旧 ✓
+ *  - 容量：**最多 20 个文件**（设置里可调 10~30 个），超限按 mtime 删最旧 ✓
  *  - **同一 `<文件名>.<页码>` 只保留最新 1 个** ✓（写新的时删掉旧的 CRC ✓）
  *  - 内容：`XMLSerializer` 序列化的 SVG 文本 ✓（**绝不用 innerHTML** ✗ —— 会带 HTML 实体坑）
  *  - 一切失败软失败 ✓（缓存坏了不能影响预览 ✓）

@@ -97,6 +97,20 @@ class DrawioFileEmbed extends MarkdownRenderChild {
     this.interactive = null;
   }
 
+  /** 最近一次读到的 drawio 源与缓存目标：全屏层翻页时原样复用，不重新读盘也不绕开缓存。 */
+  private xml = '';
+  private cacheTarget: PreviewCacheTarget | null = null;
+
+  /** 把第 `page` 页渲染进 `target`（走与正文完全相同的缓存），返回渲染出的 svg。
+   *  供全屏层使用：它需要一个自己的容器与 svg，才能挂独立的 viewer 实例。 */
+  private async renderPageInto(target: HTMLElement, page: number): Promise<SVGSVGElement | null> {
+    if (!this.cacheTarget) return null;
+    const ok = await renderPreviewCached(
+      target, this.xml, { ...this.plugin.previewOpts(), page }, this.file.name, this.cacheTarget,
+    );
+    return ok ? target.querySelector('svg') : null;
+  }
+
   private async render(): Promise<void> {
     // An in-flight render can resume after Obsidian unloaded this component.
     // Rendering then would mount a controller nothing ever disposes.
@@ -125,6 +139,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
     try {
       const xml = await this.plugin.app.vault.read(this.file);
       if (generation !== this.renderGeneration) return;
+      this.xml = xml;
       const wrapped = ensureMxfile(xml);
       const pages = getDiagramPages(wrapped);
 
@@ -147,6 +162,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
       applyEmbedSize(sizeHost, preview, size);
       // 算一次，初次渲染与后续翻页共用（翻页不再重新构造缓存目标）。
       const cacheTarget = previewCacheTarget(this.plugin);
+      this.cacheTarget = cacheTarget;
       await renderPreviewCached(
         preview, xml, { ...this.plugin.previewOpts(), page: this.currentPage },
         this.file.name, cacheTarget,
@@ -187,6 +203,14 @@ class DrawioFileEmbed extends MarkdownRenderChild {
           onEdit: () => {
             openWithDefaultApp(this.plugin.app, this.file.path);
             warmViewerLater(el.ownerDocument);
+          },
+          pages: {
+            count: pages.length,
+            current: this.currentPage,
+            render: (target, p) => this.renderPageInto(target, p),
+            pinnedPage: resolvePageFromSubpath(pages, this.subpath),
+            onPin: (p) => { void this.pin(pages, p); },
+            appearance: this.plugin.previewAppearance(),
           },
         });
         this.interactive.bindSvg(preview.querySelector('svg'));

@@ -108,7 +108,9 @@ export default class DrawioPlugin extends Plugin {
  * it's unit-testable without a full Plugin instance. */
 export function setPreviewAppearance(plugin: DrawioPlugin, appearance: PreviewAppearance): void {
   for (const doc of previewDocuments(plugin)) {
-    for (const el of Array.from(doc.querySelectorAll<HTMLElement>('.drawio-preview'))) {
+    // 全屏层用的是自己的容器类，同样要跟随设置变化。
+    const targets = '.drawio-preview, .drawio-fullscreen-surface';
+    for (const el of Array.from(doc.querySelectorAll<HTMLElement>(targets))) {
       el.dataset.appearance = appearance;
       if (el.parentElement) el.parentElement.dataset.appearance = appearance;
     }

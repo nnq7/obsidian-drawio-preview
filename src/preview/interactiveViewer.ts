@@ -1,10 +1,33 @@
 import { MarkdownRenderChild, setIcon } from 'obsidian';
 import { strings } from '../i18n';
+import { renderPageControl } from './pageControl';
+import type { PreviewAppearance } from '../settings';
 
 interface InteractiveViewerOptions {
   /** A height already resolved by the caller (e.g. a link-pinned size). */
   initialHeight?: number;
   onEdit?: () => void;
+  /** 全屏层的数据来源。缺省时全屏按钮不可用。
+   *
+   *  全屏层不移动原 embed 的任何节点（Obsidian 会把它搬回去），而是新建一层、
+   *  用同一个缓存把当前页渲染进去，再挂一个独立的 viewer 实例。 */
+  pages?: {
+    count: number;
+    current: number;
+    /** Render page `page` into `target` through the embed's own cache. */
+    render: (target: HTMLElement, page: number) => Promise<SVGSVGElement | null>;
+    /** Persist a page into the note's link (the pin button in the layer). */
+    onPin?: (page: number) => void;
+    /** Page index the note's link currently resolves to. */
+    pinnedPage?: number;
+    /** 预览外观：drawio 的颜色是 `light-dark()` 语义色，靠容器的
+     *  `color-scheme` 解析，所以全屏层必须带上同一个 `data-appearance`。 */
+    appearance: PreviewAppearance;
+  };
+  /** 全屏层自己不再提供「再全屏」，隐藏该按钮。 */
+  suppressFullscreen?: boolean;
+  /** 全屏层里的「×」由外层负责关闭（该实例本身没有覆盖层）。 */
+  onExitFullscreen?: () => void;
 }
 
 interface ViewBox {
@@ -34,10 +57,13 @@ const MAX_SCALE = 8;
 const SCALE_EPSILON = 0.0001;
 
 /**
- * Minimal interactive-viewer lifecycle and activation shell.
+ * Interactive viewer: activation, zoom/pan, Fit, Edit, page pinning, and the
+ * in-window fullscreen layer.
  *
- * Zoom, pan, Edit, and fullscreen are intentionally added by later stages. This
- * walking skeleton only owns activation, exit, a placeholder toolbar, and cleanup.
+ * Fullscreen deliberately does NOT use the Fullscreen API: that moves the embed
+ * into the top layer, which makes Codemirror recompute scrolling and jumps the
+ * note (measured +811~+4581px). It builds a separate fixed layer instead, so the
+ * embed's own layout — and the scroll position — never change.
  */
 export class InteractiveViewerController extends MarkdownRenderChild {
   private active = false;
@@ -56,20 +82,20 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   private doc: Document;
   private viewportInitialized = false;
   private manuallyResized = false;
-  /** 正在等预览框尺寸稳定（退出全屏后）：期间的 window resize 一律跳过。 */
-  private settling = false;
-  private settleTimer: number | null = null;
-  private settleObserver: ResizeObserver | null = null;
   private panStartX = 0;
   private panStartY = 0;
   /** 拖拽开始时算好的内容缩放比：拖拽期间元素尺寸不变，不必每次 pointermove
    *  都调 getBoundingClientRect（那会强制同步布局，高频拖动时每秒上百次）。 */
   private panStartScale = 0;
-  /** 宿主是否支持 Fullscreen API；构造时算一次，别在每次 updateControls 里 duck-type。 */
-  private canFullscreen = false;
   private panStartBox: ViewBox | null = null;
   /** Watches a detached/hidden preview until layout gives it a real width. */
   private measureObserver: ResizeObserver | null = null;
+  /** 全屏覆盖层；null 表示未进入全屏。 */
+  private overlay: HTMLElement | null = null;
+  /** 全屏层里那台独立的 viewer；关闭时一并销毁。 */
+  private fullscreenViewer: InteractiveViewerController | null = null;
+  /** 全屏层里承载 svg 的容器，翻页时往这里重渲染。 */
+  private fullscreenSurface: HTMLElement | null = null;
 
   constructor(
     private root: HTMLElement,
@@ -84,7 +110,6 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.preview.addEventListener('wheel', this.onWheel, { passive: false });
     this.preview.addEventListener('pointerdown', this.onPanStart);
     this.addDocumentListeners(this.doc);
-    this.canFullscreen = typeof this.root.requestFullscreen === 'function';
   }
 
   get isActive(): boolean { return this.active; }
@@ -125,9 +150,6 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   activate(): void {
     if (this.disposed || !this.svg) return;
     this.rebindIfDocumentChanged();
-    // 宿主可能在我们构造之后才注入 Fullscreen API（测试替身就是这样），
-    // 所以在激活（低频）时重新探测一次，而不是每次 updateControls 都 duck-type。
-    this.canFullscreen = typeof this.root.requestFullscreen === 'function';
     this.initializeViewport();
     this.active = true;
     this.root.classList.add('drawio-interactive-active');
@@ -144,15 +166,9 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
-    // Being torn down while fullscreen (e.g. the note re-renders) would leave
-    // the pane stuck fullscreen with no exit control — reconcile first.
-    if (this.doc.fullscreenElement === this.root && typeof this.doc.exitFullscreen === 'function') {
-      try {
-        void this.doc.exitFullscreen().catch(() => { /* host is already leaving */ });
-      } catch { /* host denies fullscreen control */ }
-    }
+    // 被销毁时若还在全屏，先拆掉覆盖层，否则会留下一个没有关闭入口的空层。
+    this.exitFullscreen();
     this.deactivate();
-    this.disconnectSettle();
     this.root.classList.remove('drawio-interactive');
     this.root.classList.remove('drawio-interactive-fullscreen');
     this.root.removeEventListener('click', this.onRootClick);
@@ -182,14 +198,12 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     // second viewer stuck active.
     doc.addEventListener('click', this.onDocumentClick, true);
     doc.addEventListener('keydown', this.onDocumentKeydown);
-    doc.addEventListener('fullscreenchange', this.onFullscreenChange);
     doc.defaultView?.addEventListener('resize', this.onWindowResize);
   }
 
   private removeDocumentListeners(doc: Document): void {
     doc.removeEventListener('click', this.onDocumentClick, true);
     doc.removeEventListener('keydown', this.onDocumentKeydown);
-    doc.removeEventListener('fullscreenchange', this.onFullscreenChange);
     doc.defaultView?.removeEventListener('resize', this.onWindowResize);
   }
 
@@ -232,7 +246,10 @@ export class InteractiveViewerController extends MarkdownRenderChild {
       { icon: 'maximize', fallback: L.btnFullscreen },
     );
     this.closeFullscreenButton = this.createButton(
-      toolbar, '×', L.btnExitFullscreen, () => { void this.exitFullscreen(); },
+      toolbar, '×', L.btnExitFullscreen, () => {
+        if (this.opts.onExitFullscreen) this.opts.onExitFullscreen();
+        else this.exitFullscreen();
+      },
       { icon: 'minimize', fallback: '×' },
     );
     this.closeFullscreenButton.hidden = true;
@@ -260,6 +277,10 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     }
     button.disabled = true;
     button.setAttribute('aria-label', ariaLabel);
+    // 工具栏按钮不抢焦点：点「全屏」时焦点若落到按钮上，浏览器会为了它调整
+    // 滚动位置，进全屏后笔记就跳了（实测 -492px；image-toolkit 打开图片时
+    // activeElement 仍停在 cm-content，所以它不跳）。
+    button.addEventListener('pointerdown', (event) => { event.preventDefault(); });
     button.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -279,26 +300,38 @@ export class InteractiveViewerController extends MarkdownRenderChild {
 
   private onDocumentClick = (event: MouseEvent): void => {
     if (!this.active) return;
+    // 全屏层只响应 Esc 与「退出全屏」按钮：点空白不退出，也不失活，
+    // 否则工具栏（连退出按钮）会一起消失。
+    if (this.overlay) return;
     const target = this.eventNode(event);
     if (!target || !this.root.contains(target)) this.deactivate();
   };
 
   private onDocumentKeydown = (event: KeyboardEvent): void => {
     if (event.key !== 'Escape') return;
-    if (this.doc.fullscreenElement === this.root) void this.exitFullscreen();
+    if (this.overlay) { this.exitFullscreen(); return; }
     this.deactivate();
   };
 
-  private onFullscreenChange = (): void => {
-    const fullscreen = this.doc.fullscreenElement === this.root;
+  /** 离 root 最近的滚动容器（编辑器是 `.cm-scroller`，阅读视图是预览容器）。
+   *  进全屏时靠它保住笔记的滚动位置。 */
+  private findScrollParent(): HTMLElement | null {
+    return this.root.closest<HTMLElement>('.cm-scroller, .markdown-preview-view, .markdown-reading-view');
+  }
+
+  /** 覆盖层里的实例用：直接切到「全屏形态」——显示 ×、隐藏全屏按钮。
+   *  它是被放进去的那台 viewer，本身没有覆盖层，状态由外层同步。 */
+  enterFullscreenChrome(): void {
+    this.applyFullscreenChrome(true);
+  }
+
+  /** 根元素的全屏标记与工具栏按钮显隐，进出全屏时统一在这里切换。 */
+  private applyFullscreenChrome(fullscreen: boolean): void {
     this.root.classList.toggle('drawio-interactive-fullscreen', fullscreen);
-    this.fullscreenButton.hidden = fullscreen;
+    this.fullscreenButton.hidden = fullscreen || this.opts.suppressFullscreen === true;
     this.closeFullscreenButton.hidden = !fullscreen;
     this.closeFullscreenButton.disabled = !fullscreen;
-    // 退出全屏后按「尺寸稳定」重算高度（见 settleViewport）。进入全屏时不用做事：
-    // 全屏尺寸由 CSS 决定，内联高度本来就不变。
-    if (!fullscreen) this.settleViewport();
-  };
+  }
 
   private onWheel = (event: WheelEvent): void => {
     if (!this.active || event.deltaY === 0) return;
@@ -371,37 +404,120 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.doc.removeEventListener('pointercancel', this.onPanEnd);
   }
 
+  /** 进入全屏：**新建**一层（不动原 embed 的任何节点），把当前页渲染进去，
+   *  再挂一台独立的 viewer。原节点的布局与滚动位置因此完全不受影响。 */
   private async enterFullscreen(): Promise<void> {
-    if (!this.active || typeof this.root.requestFullscreen !== 'function') return;
-    try {
-      await this.root.requestFullscreen();
-      this.onFullscreenChange();
-    } catch {
-      // The host may deny fullscreen; the rest of the viewer remains usable.
+    const pages = this.opts.pages;
+    if (!this.active || this.overlay || !pages) return;
+    const doc = this.root.ownerDocument;
+    const body = doc.body;
+    if (!body) return;
+    // Build through the target document's own helpers so a popout window gets
+    // nodes owned by its document. `Document.win` is typed as the plain DOM
+    // Window, hence the cast.
+    const dom = doc.win as unknown as { createDiv(): HTMLDivElement };
+    // 把焦点交给覆盖层会让浏览器顺手滚动宿主容器；这里记下位置，稍后原样放回。
+    const scroller = this.findScrollParent();
+    const savedTop = scroller?.scrollTop ?? 0;
+
+    const overlay = dom.createDiv();
+    overlay.className = 'drawio-interactive-overlay';
+    const stage = dom.createDiv();
+    stage.className = 'drawio-fullscreen-stage';
+    const surface = dom.createDiv();
+    surface.className = 'drawio-fullscreen-surface';
+    // 与预览框同一个外观：否则 SVG 的语义色会跟随 Obsidian 主题解析成深色。
+    surface.dataset.appearance = pages.appearance;
+    stage.appendChild(surface);
+    overlay.appendChild(stage);
+
+    // 多页时给覆盖层自己的翻页条：原实例的 pager 留在笔记里，不能共用。
+    if (pages.count > 1) {
+      const pagerBar = dom.createDiv();
+      pagerBar.className = 'drawio-fullscreen-pager';
+      // 放进 stage（第二实例的 root）里：否则点翻页会被它判为「点外部」而失活，
+      // 连带把缩放按钮禁用。
+      stage.insertBefore(pagerBar, surface);
+      renderPageControl(pagerBar, {
+        pages: Array.from({ length: pages.count }, (_, i) => ({ id: String(i) })),
+        initialPage: pages.current,
+        onPageChange: (page) => { void this.showFullscreenPage(page); },
+        pin: pages.onPin
+          ? { pinnedPage: pages.pinnedPage ?? pages.current, onPin: pages.onPin }
+          : undefined,
+      });
+    }
+
+    body.appendChild(overlay);
+    this.fullscreenSurface = surface;
+
+    this.overlay = overlay;
+    this.applyFullscreenChrome(true);
+
+    const svg = await pages.render(surface, pages.current);
+    // 渲染期间用户可能已经退出全屏。
+    if (!svg || !this.overlay) return;
+    const viewer = new InteractiveViewerController(stage, surface, {
+      // Editing must also tear down the overlay: this instance owns no overlay
+      // of its own, so closing the layer is the outer viewer's job.
+      onEdit: () => {
+        this.exitFullscreen();
+        this.deactivate();
+        this.opts.onEdit?.();
+      },
+      suppressFullscreen: true,
+      onExitFullscreen: () => this.exitFullscreen(),
+    });
+    viewer.bindSvg(svg);
+    viewer.activate();
+    viewer.enterFullscreenChrome();
+    this.fullscreenViewer = viewer;
+    // 浏览器的滚动由焦点变化**异步**触发，此刻可能还没发生 —— 所以无条件调度，
+    // 在两帧内各放回一次（Codemirror 也可能随后再修一次）。
+    if (scroller) {
+      const win2 = doc.defaultView;
+      const restore = (pass: number) => {
+        if (this.disposed) return;
+        scroller.scrollTop = savedTop;
+        if (pass < 1) win2?.requestAnimationFrame(() => restore(pass + 1));
+      };
+      win2?.requestAnimationFrame(() => restore(0));
     }
   }
 
-  private async exitFullscreen(): Promise<void> {
-    if (this.doc.fullscreenElement !== this.root || typeof this.doc.exitFullscreen !== 'function') return;
-    try {
-      await this.doc.exitFullscreen();
-      this.onFullscreenChange();
-    } catch {
-      // The host may already be leaving fullscreen; fullscreenchange reconciles state.
-    }
+  /** 覆盖层里翻页：用同一个缓存重渲染该页，再让独立 viewer 绑到新 svg 上。 */
+  private async showFullscreenPage(page: number): Promise<void> {
+    const pages = this.opts.pages;
+    const surface = this.fullscreenSurface;
+    const viewer = this.fullscreenViewer;
+    if (!pages || !surface || !viewer) return;
+    surface.empty();
+    const svg = await pages.render(surface, page);
+    if (!svg || !this.overlay) return;
+    viewer.bindSvg(svg);
+  }
+
+  private exitFullscreen(): void {
+    const overlay = this.overlay;
+    if (!overlay) return;
+    this.overlay = null;
+    this.applyFullscreenChrome(false);
+    this.fullscreenViewer?.dispose();
+    this.fullscreenViewer = null;
+    this.fullscreenSurface = null;
+    overlay.remove();
   }
 
   private async runEditAction(): Promise<void> {
-    if (this.doc.fullscreenElement === this.root) await this.exitFullscreen();
+    if (this.overlay) this.exitFullscreen();
     this.deactivate();
     this.opts.onEdit?.();
   }
 
   private onWindowResize = (): void => {
     if (this.manuallyResized) return;
-    // 退出全屏后的那波 resize 交给 settleViewport 统一收尾，这里不插一脚。
-    if (this.settling) return;
-    if (this.doc.fullscreenElement === this.root) return;
+    // 全屏层是独立的固定层，宿主尺寸变化不影响它里面的视口。
+    if (this.overlay) return;
     this.initializeViewport(true);
   };
 
@@ -454,39 +570,6 @@ export class InteractiveViewerController extends MarkdownRenderChild {
   private disconnectMeasureObserver(): void {
     this.measureObserver?.disconnect();
     this.measureObserver = null;
-  }
-
-  /**
-   * 退出全屏后按「尺寸稳定」重算高度。
-   *
-   * 退出瞬间浏览器先派发 window resize、之后才完成笔记排版，此时量到的宽度还是
-   * 全屏宽度（实测 1278），据此算高度会把框写死成 1136。固定时间窗挡不住慢机器
-   * 上更长的排版；而 ResizeObserver 的回调本来就在布局完成后才触发，所以
-   * 「它不再变化」就等于布局真的稳了 —— 与机器快慢无关。
-   */
-  private settleViewport(): void {
-    const win = this.doc.defaultView;
-    if (!win || typeof win.ResizeObserver !== 'function') return;
-    this.disconnectSettle();
-    this.settling = true;
-    this.settleObserver = new win.ResizeObserver(() => {
-      if (this.settleTimer !== null) win.clearTimeout(this.settleTimer);
-      this.settleTimer = win.setTimeout(() => {
-        this.disconnectSettle();
-        if (!this.disposed) this.initializeViewport(true);
-      }, 120);
-    });
-    this.settleObserver.observe(this.preview);
-  }
-
-  private disconnectSettle(): void {
-    if (this.settleTimer !== null) {
-      this.doc.defaultView?.clearTimeout(this.settleTimer);
-      this.settleTimer = null;
-    }
-    this.settleObserver?.disconnect();
-    this.settleObserver = null;
-    this.settling = false;
   }
 
   private applyViewport(svg: SVGSVGElement, height: number): void {
@@ -566,7 +649,8 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.zoomInButton.disabled = !ready || scale >= MAX_SCALE - SCALE_EPSILON;
     this.zoomOutButton.disabled = !ready || scale <= 1 + SCALE_EPSILON;
     this.fitButton.disabled = !ready || scale <= 1 + SCALE_EPSILON;
-    this.fullscreenButton.disabled = !ready || !this.canFullscreen;
+    this.fullscreenButton.hidden = this.opts.suppressFullscreen === true;
+    this.fullscreenButton.disabled = !ready || this.opts.pages === undefined;
     this.editButton.disabled = !ready || this.opts.onEdit === undefined;
   }
 

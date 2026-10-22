@@ -102,16 +102,46 @@
    it. `flex` is kept for the cases where it does apply, but nothing here
    depends on it: Obsidian's `.markdown-source-view.mod-cm6 .cm-content > *`
    (specificity 0,3,0) forces `display: block` on Live Preview embeds. */
-.drawio-interactive-fullscreen {
-  box-sizing: border-box; display: flex; flex-direction: column;
-  width: 100%; height: 100%; padding: 12px;
+/* Fullscreen = a fresh layer, NOT the Fullscreen API. The embed's own DOM is
+   never moved, so the note's layout and scroll position cannot shift (the API
+   put the element in the top layer and Codemirror then jumped the note by
+   +811~+4581px). A second viewer instance lives inside this layer. */
+.drawio-interactive-overlay {
+  position: fixed; inset: 0; z-index: 55;
+  box-sizing: border-box; padding: 12px;
+  display: flex; flex-direction: column;
   background: var(--background-primary);
 }
-.drawio-interactive-fullscreen .drawio-interactive-viewport {
+/* Pager row above the stage, so the layer keeps the same page controls the
+   inline embed has (the original pager stays in the note). */
+.drawio-fullscreen-pager {
+  display: flex; justify-content: center; align-items: center;
+  gap: 4px; padding: 0 0 8px;
+}
+
+.drawio-fullscreen-stage {
+  box-sizing: border-box;
+  flex: 1 1 auto; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+}
+.drawio-fullscreen-surface[data-appearance="light"] {
+  color-scheme: only light; background-color: #ffffff;
+}
+.drawio-fullscreen-surface[data-appearance="dark"] {
+  color-scheme: only dark; background-color: #121212;
+}
+.drawio-fullscreen-surface[data-appearance="transparent"] {
+  color-scheme: only light; background-color: transparent;
+}
+.drawio-fullscreen-surface {
   flex: 1 1 auto; min-width: 0; min-height: 0;
   width: 100% !important; max-width: none !important;
   height: 100% !important;
 }
+/* `.drawio-interactive-fullscreen` is a status marker only (set by JS). It must
+   carry NO layout property: the fullscreen view lives in a separate layer
+   (`.drawio-interactive-overlay`), and touching this element's box would change
+   the note's height — which shifted the scroll position by +19px in testing. */
 /* The pager lives inside the toolbar (`attachPager`), so it never costs a row
    below the diagram — a fullscreen viewport keeps the whole box. It shows only
    while the preview is active, like the rest of the toolbar. */

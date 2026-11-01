@@ -4,7 +4,6 @@
 /* Dual-format image embeds (`![[x.drawio.svg]]`): Obsidian renders the native
    <img>; we only add the click-to-edit hotspot on top, so the span needs a
    positioning context and the pointer affordance. */
-.drawio-dualformat-embed { position: relative; cursor: pointer; }
 .drawio-preview { width: 100%; overflow: auto; text-align: center; }
 /* Preview appearance (the plugin writes `data-appearance` on every preview
    root — .drawio file view, ![[x.drawio]] embeds, and the interactive viewer's
@@ -32,7 +31,6 @@
 }
 /* Previews whose click action is "Do nothing" shouldn't advertise clickability. */
 .drawio-codeblock.drawio-no-action, .drawio-embed.drawio-no-action,
-.drawio-dualformat-embed.drawio-no-action { cursor: default; }
 
 /* Interactive viewer viewport and controls. */
 .drawio-interactive .drawio-preview { user-select: none; }
@@ -152,29 +150,11 @@
   padding: 8px 12px; color: var(--text-error);
   border: 1px solid var(--background-modifier-error); border-radius: 6px;
 }
+/* Bilingual message: Chinese line, then the English one slightly quieter. */
+.drawio-error > div + div {
+  margin-top: 4px; font-size: 0.92em; opacity: 0.9;
+}
 
-.drawio-edit-action-settings {
-  flex-wrap: wrap;
-}
-.drawio-edit-action-fields {
-  width: 100%; margin-top: 10px; padding-left: 12px;
-  border-left: 2px solid var(--background-modifier-border);
-}
-.drawio-edit-action-row {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: 16px; padding: 8px 0;
-}
-.drawio-edit-action-row + .drawio-edit-action-row {
-  border-top: 1px solid var(--background-modifier-border);
-}
-.drawio-edit-action-label { color: var(--text-normal); }
-.drawio-edit-action-description { color: var(--text-muted); font-size: var(--font-ui-smaller); }
-.drawio-edit-action-control { flex: 0 0 auto; }
-.drawio-edit-action-control select { max-width: 240px; }
-@media (max-width: 600px) {
-  .drawio-edit-action-row { align-items: stretch; flex-direction: column; gap: 6px; }
-  .drawio-edit-action-control select { width: 100%; max-width: none; }
-}
 
 /* Multi-page navigation, rendered below the diagram when a file has >1 page. */
 .drawio-page-control {
@@ -192,28 +172,10 @@
 .internal-embed[src*=".drawio.svg"],
 .internal-embed[src*=".drawio.png"] { cursor: pointer; }
 
-/* ---- Modal editor (code blocks & embeds) ---- */
-.drawio-modal { width: 90vw; height: 90vh; max-width: none; }
-.drawio-modal .modal-content { height: 100%; padding: 0; }
-.drawio-iframe { width: 100%; height: 100%; border: none; display: block; }
 
-/* ---- Headless export (HeadlessExporter) ---- */
-/* Off-screen host for the one-shot export iframe: kept rendered — not
-   display:none — so drawio can lay out and rasterize, but never visible or
-   interactive. */
-.drawio-headless-exporter {
-  position: fixed;
-  top: -10000px;
-  left: -10000px;
-  width: 800px;
-  height: 600px;
-  overflow: hidden;
-  pointer-events: none;
-}
 
 /* ---- Inline editor in the tab (.drawio files, Excalidraw-style) ---- */
 .drawio-file-view { height: 100%; padding: 0; }
-.drawio-file-view .drawio-iframe { width: 100%; height: 100%; }
 
 /* ---- Read-only file view (.drawio files: always on mobile, opt-in on desktop) ---- */
 .drawio-preview-file-view { position: relative; height: 100%; overflow: auto; padding: 12px; }

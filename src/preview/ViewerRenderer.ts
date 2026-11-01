@@ -3,7 +3,25 @@ import { isValidDrawioXml, ensureMxfile } from '../model/xmlUtils';
 import { sanitizeSvgToNode } from './svgSanitizer';
 import { crc32Hex } from './crc32';
 import { cacheFileName, readCache, writeCache, type CacheStore } from './svgFileCache';
+import {
+  applyRegionViewBox, flattenLabelSwitches, hasCellIds, sharedRegionCacheName,
+} from './regionViewBox';
 import type { PreviewAppearance } from '../settings';
+
+/**
+ * Shown in place of the diagram when a region link cannot be resolved (bad id,
+ * bad link shape, frame that is not a rectangle, export unavailable).
+ *
+ * Both languages are shown at once, Chinese first: the text is short, and it has
+ * to stay readable whatever UI language the vault is set to. A region link either
+ * shows its region or says why not — silently falling back to the whole diagram
+ * would make a typo look like it worked.
+ */
+export const REGION_ERROR_ZH =
+  'drawio渲染错误：请检查链接格式和元素id是否正确，元素id仅支持矩形框元素';
+export const REGION_ERROR_EN =
+  'drawio render error: check the link format and whether the element id is correct. '
+  + 'Only rectangular frames are supported as element ids.';
 
 export interface RenderOptions {
   dark: boolean;
@@ -16,6 +34,16 @@ export interface RenderOptions {
   appearance?: PreviewAppearance;
   /** Which diagram page to render (0-indexed); defaults to 0 (first page). */
   page?: number;
+  /**
+   * Element id of a box; when set, only the area that box covers is shown.
+   *
+   * Rendered through drawio's SVG **export** path, which tags every element
+   * with `data-cell-id` and emits content coordinates with no root transform —
+   * so the box's bbox is the viewBox, with nothing to back-solve. Any failure
+   * (no instance, no such id, degenerate box) silently falls back to the whole
+   * page: a wrong region is worse than no region.
+   */
+  regionId?: string;
 }
 
 const RENDER_TIMEOUT_MS = 5000;
@@ -94,6 +122,7 @@ export function renderPreview(el: HTMLElement, xml: string, opts: RenderOptions)
   }
 
   let done = false;
+
   const finalize = (svg: SVGSVGElement): void => {
     if (done) return;
     done = true;
@@ -163,6 +192,30 @@ export async function renderPreviewCached(
   const { store } = cache;
   const page = opts.page ?? 0;
   const crc = crc32Hex(xml);
+
+  // A region never uses the whole-page path. Every region of one page shares a
+  // single export (`<file>#x`) and crops its own viewBox out of it, so 30
+  // regions of one diagram cost one render and one cache file instead of 30.
+  if (opts.regionId) {
+    const markup = await acquireRegionMarkup(el, xml, opts, sourceName, cache);
+    const svg = markup ? cropRegionSvg(markup, opts.regionId, el.ownerDocument) : null;
+    el.empty();
+    el.dataset.appearance = opts.appearance ?? (opts.dark ? 'dark' : 'light');
+    const appearanceHost = el.parentElement;
+    if (appearanceHost && el.dataset.appearance) {
+      appearanceHost.dataset.appearance = el.dataset.appearance;
+    }
+    if (svg) {
+      el.appendChild(svg);
+      return true;
+    }
+    // Two lines in one box: Chinese first, English second.
+    const errorBox = el.createDiv({ cls: 'drawio-error' });
+    errorBox.createDiv({ text: REGION_ERROR_ZH });
+    errorBox.createDiv({ text: REGION_ERROR_EN });
+    return false;
+  }
+
   const name = cacheFileName(sourceName, page, crc);
   const hit = await readCache(store, name);
   if (hit) {
@@ -174,15 +227,21 @@ export async function renderPreviewCached(
       root = null;
     }
     if (root && root.tagName.toLowerCase() === 'svg') {
-      el.empty();
-      // Same appearance pinning as renderPreview (root + stable parent).
-      el.dataset.appearance = opts.appearance ?? (opts.dark ? 'dark' : 'light');
-      const appearanceHost = el.parentElement;
-      if (appearanceHost && el.dataset.appearance) {
-        appearanceHost.dataset.appearance = el.dataset.appearance;
+      // A whole-page cache entry (written before regions existed, or by a plain
+      // `![[x.drawio]]` embed) carries no cell ids. Serving it for a region
+      // would silently show the entire diagram, so treat it as a miss.
+      const usable = !opts.regionId || hasCellIds(root);
+      if (usable) {
+        el.empty();
+        // Same appearance pinning as renderPreview (root + stable parent).
+        el.dataset.appearance = opts.appearance ?? (opts.dark ? 'dark' : 'light');
+        const appearanceHost = el.parentElement;
+        if (appearanceHost && el.dataset.appearance) {
+          appearanceHost.dataset.appearance = el.dataset.appearance;
+        }
+        el.appendChild(el.ownerDocument.importNode(root, true));
+        return true;
       }
-      el.appendChild(el.ownerDocument.importNode(root, true));
-      return true;
     }
   }
   const ok = renderPreview(el, xml, opts);
@@ -190,7 +249,12 @@ export async function renderPreviewCached(
     // ⚠️ take the *inserted* <svg>: extractSizedSvg may return a DocumentFragment,
     // whose children are gone once appended.
     const svg = el.querySelector('svg');
-    if (svg) {
+    // A region link that fell back produced a whole-page svg. Caching it under
+    // the region name would be stored-but-never-used (the reader above rejects
+    // any entry without cell ids), so skip the write rather than leave an entry
+    // that can never be hit.
+    const fellBack = opts.regionId !== undefined && svg !== null && !hasCellIds(svg);
+    if (svg && !fellBack) {
       try {
         const win = el.ownerDocument.defaultView ?? window;
         void writeCache(store, name, new win.XMLSerializer().serializeToString(svg), cache.limitFiles);
@@ -219,6 +283,150 @@ export const VIEWER_SIZE_PADDING = 25;
  *  half-pixel grid, which measures out as 8.5 / 16.5 gutters — so the shift that
  *  actually equalises them is 4. */
 export const VIEWBOX_CENTERING_SHIFT = (VIEWER_SIZE_PADDING - 2 * VIEWER_BORDER - 1) / 2;
+
+/**
+ * In-flight exports, keyed by the shared cache name: N regions of one page wait
+ * on one render instead of starting N of them.
+ */
+const regionInFlight = new Map<string, Promise<string | null>>();
+/** How long a finished export stays reachable for a late-arriving region. */
+const REGION_INFLIGHT_TTL_MS = 2000;
+
+/**
+ * Render one page through drawio's SVG **export** path and return its markup.
+ *
+ * Mirrors `renderPreview`'s bootstrap (same mount shape and flags, so the viewer
+ * behaves identically) but harvests `graph.getSvg()` instead of the viewer's own
+ * inline `<svg>`: only the export carries `data-cell-id`, and it emits content
+ * coordinates with no root transform.
+ *
+ * The result is the **whole page**, uncropped — one export serves every region
+ * of that page, which is the whole point.
+ */
+function renderExportMarkup(container: HTMLElement, xml: string, opts: RenderOptions): string | null {
+  const doc = container.ownerDocument;
+  ensureViewerLoaded(doc);
+  const viewer = getGraphViewer(doc.defaultView ?? window);
+  if (!viewer) return null;
+  const mount = container.createDiv({ cls: 'mxgraph' });
+  mount.setAttribute('data-mxgraph', JSON.stringify({
+    highlight: '#0000ff', nav: false, lightbox: false, toolbar: '', edit: null,
+    'check-visible-state': false,
+    'dark-mode': opts.dark ? 'auto' : 'off',
+    page: opts.page ?? 0,
+    xml: ensureMxfile(xml),
+  }));
+  const win = doc.defaultView ?? window;
+  const urlParams = (win as unknown as { urlParams?: Record<string, unknown> }).urlParams;
+  const prevPage = urlParams?.page;
+  let instance: unknown = null;
+  try {
+    viewer.createViewerForElement(mount, (v) => { instance = v; });
+  } finally {
+    if (urlParams) urlParams.page = prevPage;
+  }
+  const graph = (instance as { graph?: { getSvg?: () => unknown } } | null)?.graph;
+  if (!graph || typeof graph.getSvg !== 'function') return null;
+  let node: unknown;
+  try {
+    node = graph.getSvg(); // no arguments: its cell filter is not usable here
+  } catch {
+    return null;
+  }
+  const exported = node as Node | null;
+  if (!exported || typeof exported.nodeType !== 'number' || exported.nodeType !== 1) return null;
+  try {
+    return new win.XMLSerializer().serializeToString(exported);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The shared export for one diagram page, or null.
+ *
+ * One diagram + page = one cache entry (`<file>#x.<page>.<crc>`) and one render,
+ * regardless of how many regions point at it.
+ */
+async function acquireRegionMarkup(
+  host: HTMLElement,
+  xml: string,
+  opts: RenderOptions,
+  sourceName: string,
+  cache: PreviewCacheTarget,
+): Promise<string | null> {
+  const page = opts.page ?? 0;
+  const key = cacheFileName(sharedRegionCacheName(sourceName), page, crc32Hex(xml));
+
+  // Claim the key before anything awaits. The cache read lives INSIDE the task:
+  // doing it outside meant that while it was pending the key was still unclaimed,
+  // so N regions of one page each read the disk before the first one registered —
+  // measured as 5 reads for 1 key.
+  const pending = regionInFlight.get(key);
+  if (pending) return pending;
+
+  const task = (async (): Promise<string | null> => {
+    const hit = await readCache(cache.store, key);
+    if (hit && hit.includes('data-cell-id')) return hit;
+
+    const doc = host.ownerDocument;
+    // The viewer needs a container inside the document; park it off-screen.
+    const scrap = doc.createElement('div');
+    scrap.setAttribute('style', 'position:absolute;left:-99999px;top:0;');
+    doc.body.appendChild(scrap);
+    let markup: string | null = null;
+    try {
+      markup = renderExportMarkup(scrap, xml, opts);
+    } finally {
+      scrap.remove();
+    }
+    if (!markup || !markup.includes('data-cell-id')) return null;
+    void writeCache(cache.store, key, markup, cache.limitFiles);
+    return markup;
+  })();
+
+  regionInFlight.set(key, task);
+  void task.finally(() => {
+    // Keep the finished export briefly so a slow embed still benefits, then drop
+    // it: a rejected task must never be memoised.
+    setTimeout(() => {
+      if (regionInFlight.get(key) === task) regionInFlight.delete(key);
+    }, REGION_INFLIGHT_TTL_MS);
+  });
+  return task;
+}
+
+/**
+ * Sanitize a shared export into a fresh tree and crop it to one region.
+ *
+ * `sanitizeSvgToNode` parses the markup on every call, so each region gets its
+ * own copy — that is what keeps region A's viewBox out of B. If this is ever
+ * changed to reuse a parsed template, it MUST clone first.
+ *
+ * Cropping reads the frame's geometry from the `<rect>` inside its group (see
+ * `readElementBox`), so the frame has to be a rectangle. Other shapes render as
+ * `<ellipse>`/`<path>` with no measurable fallback on a detached tree and fall
+ * back to the error placeholder. Supporting them would mean measuring after
+ * attach or baking geometry at export time; both were evaluated and dropped.
+ */
+function cropRegionSvg(markup: string, regionId: string, doc: Document): SVGSVGElement | null {
+  let frag: Node;
+  try {
+    frag = sanitizeSvgToNode(markup, doc);
+  } catch {
+    return null;
+  }
+  let svg: SVGSVGElement | null = null;
+  for (const child of Array.from(frag.childNodes)) {
+    if (child.nodeType === 1 && (child as Element).localName.toLowerCase() === 'svg') {
+      svg = child as SVGSVGElement;
+      break;
+    }
+  }
+  if (!svg) return null;
+  flattenLabelSwitches(svg);
+  return applyRegionViewBox(svg, regionId) ? svg : null;
+}
 
 /**
  * Sanitize GraphViewer's <svg> and make it self-contained: give it an explicit

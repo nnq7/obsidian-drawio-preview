@@ -43,7 +43,13 @@ export function ensureViewerLoaded(doc: Document = activeDocument): void {
 }
 
 interface GraphViewerStatic {
-  createViewerForElement(el: HTMLElement): void;
+  /**
+   * The vendored implementation takes an optional second argument and passes it
+   * the GraphViewer instance once the diagram is built. That instance owns the
+   * `graph`, which is the only handle on drawio's SVG **export** path
+   * (`graph.getSvg()`) — see `docs/region-preview-research.md`.
+   */
+  createViewerForElement(el: HTMLElement, onReady?: (instance: unknown) => void): void;
 }
 
 export function getGraphViewer(win: Window = window): GraphViewerStatic | null {

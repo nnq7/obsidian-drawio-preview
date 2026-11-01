@@ -10,7 +10,8 @@ import { InteractiveViewerController } from '../preview/interactiveViewer';
 import { SectionLifecycle } from '../preview/sectionLifecycle';
 import { applyEmbedSize, findSizedEmbed, readEmbedSize, type EmbedSize } from '../preview/embedSize';
 import {
-  getDiagramPages, resolvePageFromSubpath, pageAnchor, ensureMxfile, type DiagramPage,
+  getDiagramPages, resolvePageFromSubpath, parseSubpath, findPageWithId, pageAnchor, ensureMxfile,
+  type DiagramPage,
 } from '../model/xmlUtils';
 import { DRAWIO_FILE_EXT } from '../constants';
 import { pinEmbedPage } from './pinEmbedPage';
@@ -100,13 +101,26 @@ class DrawioFileEmbed extends MarkdownRenderChild {
   /** 最近一次读到的 drawio 源与缓存目标：全屏层翻页时原样复用，不重新读盘也不绕开缓存。 */
   private xml = '';
   private cacheTarget: PreviewCacheTarget | null = null;
+  /** Region element id from the link (`#element-id`), or null for a whole page. */
+  private regionId: string | null = null;
+
+  /** Render options for one page, carrying the link's region id when it has one.
+   *  A region travels with every page render: on a page without that box id the
+   *  renderer falls back to the whole page, which is the honest result. */
+  private regionOpts(page: number) {
+    return {
+      ...this.plugin.previewOpts(),
+      page,
+      ...(this.regionId ? { regionId: this.regionId } : {}),
+    };
+  }
 
   /** 把第 `page` 页渲染进 `target`（走与正文完全相同的缓存），返回渲染出的 svg。
    *  供全屏层使用：它需要一个自己的容器与 svg，才能挂独立的 viewer 实例。 */
   private async renderPageInto(target: HTMLElement, page: number): Promise<SVGSVGElement | null> {
     if (!this.cacheTarget) return null;
     const ok = await renderPreviewCached(
-      target, this.xml, { ...this.plugin.previewOpts(), page }, this.file.name, this.cacheTarget,
+      target, this.xml, this.regionOpts(page), this.file.name, this.cacheTarget,
     );
     return ok ? target.querySelector('svg') : null;
   }
@@ -145,7 +159,11 @@ class DrawioFileEmbed extends MarkdownRenderChild {
 
       if (!this.pageResolvedFromSubpath) {
         this.pageResolvedFromSubpath = true;
-        this.currentPage = resolvePageFromSubpath(pages, this.subpath);
+        const info = parseSubpath(pages, this.subpath);
+        this.regionId = info.regionId;
+        // A region id names an element, not a page: find the page that holds it.
+        const regionPage = info.regionId ? findPageWithId(wrapped, info.regionId) : null;
+        this.currentPage = regionPage ?? info.page;
       } else {
         // A modify-triggered refresh: keep whatever page the user was looking
         // at, clamped in case the page count shrank.
@@ -164,14 +182,14 @@ class DrawioFileEmbed extends MarkdownRenderChild {
       const cacheTarget = previewCacheTarget(this.plugin);
       this.cacheTarget = cacheTarget;
       await renderPreviewCached(
-        preview, xml, { ...this.plugin.previewOpts(), page: this.currentPage },
+        preview, xml, this.regionOpts(this.currentPage),
         this.file.name, cacheTarget,
       );
       // The cache read is an await: a newer render may have superseded this one.
       if (generation !== this.renderGeneration) return;
 
       let pageControlEl: HTMLElement | null = null;
-      if (pages.length > 1) {
+      if (pages.length > 1 && !this.regionId) {
         pageControlEl = el.createDiv({ cls: 'drawio-page-control' });
         renderPageControl(pageControlEl, {
           pages,
@@ -184,7 +202,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
             this.flipChain = this.flipChain.then(async () => {
               if (this.torndown) return;
               await renderPreviewCached(
-                preview, xml, { ...this.plugin.previewOpts(), page },
+                preview, xml, this.regionOpts(page),
                 this.file.name, cache,
               );
               this.interactive?.bindSvg(preview.querySelector('svg'));
@@ -205,7 +223,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
             warmViewerLater(el.ownerDocument);
           },
           pages: {
-            count: pages.length,
+            count: this.regionId ? 1 : pages.length,
             current: this.currentPage,
             render: (target, p) => this.renderPageInto(target, p),
             pinnedPage: resolvePageFromSubpath(pages, this.subpath),
@@ -330,7 +348,10 @@ async function renderEmbedInto(
     const xml = await plugin.app.vault.read(file);
     const wrapped = ensureMxfile(xml);
     const pages = getDiagramPages(wrapped);
-    const currentPage = resolvePageFromSubpath(pages, subpath);
+    const info = parseSubpath(pages, subpath);
+    const regionId = info.regionId;
+    const regionPage = regionId ? findPageWithId(wrapped, regionId) : null;
+    const currentPage = regionPage ?? info.page;
     // Link-pinned size (see DrawioFileEmbed.render). `span` is the hosting
     // `.internal-embed` in this Reading-view fallback path.
     const sizeHost = findSizedEmbed(span);
@@ -340,12 +361,12 @@ async function renderEmbedInto(
     const preview = span.createDiv({ cls: 'drawio-preview' });
     applyEmbedSize(sizeHost, preview, size);
     await renderPreviewCached(
-      preview, xml, { ...plugin.previewOpts(), page: currentPage },
+      preview, xml, { ...plugin.previewOpts(), page: currentPage, ...(regionId ? { regionId } : {}) },
       file.name, previewCacheTarget(plugin),
     );
 
     let pageControlEl: HTMLElement | null = null;
-    if (pages.length > 1) {
+    if (pages.length > 1 && !regionId) {
       pageControlEl = span.createDiv({ cls: 'drawio-page-control' });
       // Serializes async page flips so a fast double click cannot land out of
       // order — the last click must win (same rule as the registry path).
@@ -357,7 +378,7 @@ async function renderEmbedInto(
           const cache = previewCacheTarget(plugin);
           flipChain = flipChain.then(async () => {
             await renderPreviewCached(
-              preview, xml, { ...plugin.previewOpts(), page },
+              preview, xml, { ...plugin.previewOpts(), page, ...(regionId ? { regionId } : {}) },
               file.name, cache,
             );
             interactive?.bindSvg(preview.querySelector('svg'));

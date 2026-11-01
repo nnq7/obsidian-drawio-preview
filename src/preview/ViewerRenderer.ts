@@ -371,8 +371,9 @@ async function acquireRegionMarkup(
 
     const doc = host.ownerDocument;
     // The viewer needs a container inside the document; park it off-screen.
-    const scrap = doc.createElement('div');
-    scrap.setAttribute('style', 'position:absolute;left:-99999px;top:0;');
+    // Off-screen placement lives in styles.css (.drawio-export-scratch) because
+    // inline style assignment is rejected by Obsidian's review.
+    const scrap = doc.createDiv({ cls: 'drawio-export-scratch' });
     doc.body.appendChild(scrap);
     let markup: string | null = null;
     try {
@@ -386,10 +387,11 @@ async function acquireRegionMarkup(
   })();
 
   regionInFlight.set(key, task);
+  const win = host.ownerDocument.defaultView ?? window;
   void task.finally(() => {
     // Keep the finished export briefly so a slow embed still benefits, then drop
     // it: a rejected task must never be memoised.
-    setTimeout(() => {
+    win.setTimeout(() => {
       if (regionInFlight.get(key) === task) regionInFlight.delete(key);
     }, REGION_INFLIGHT_TTL_MS);
   });

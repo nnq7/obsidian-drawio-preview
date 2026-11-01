@@ -371,9 +371,14 @@ async function acquireRegionMarkup(
 
     const doc = host.ownerDocument;
     // The viewer needs a container inside the document; park it off-screen.
-    // Off-screen placement lives in styles.css (.drawio-export-scratch) because
-    // inline style assignment is rejected by Obsidian's review.
-    const scrap = doc.createDiv({ cls: 'drawio-export-scratch' });
+    // NOTE: keep this as an inline style for now. A CSS class (or setCssProps)
+    // was tried to satisfy obsidianmd/no-static-styles-assignment and the cold
+    // render path stalled — no svg, no error, the embed just stayed empty.
+    // Restoring the inline form is what ships in 1.3.0 and is known to render.
+    const scrap = doc.createElement('div');
+    // Styling lives in styles.css (.drawio-export-scratch): inline styles are a
+    // hard review error and cannot be waived.
+    scrap.className = 'drawio-export-scratch';
     doc.body.appendChild(scrap);
     let markup: string | null = null;
     try {

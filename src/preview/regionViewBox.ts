@@ -13,13 +13,15 @@
  */
 
 /**
- * Breathing room around the region, in source units.
+ * Offset from the box's own bounds, in source units. **Negative = pull inwards.**
  *
- * Zero by request: the preview shows exactly the box's own bounds. Trade-off to
- * keep in mind — a diagram using `shadow=1` draws that shadow outside the bbox,
- * so the edge of the shadow gets clipped.
+ * -1 by request: a frame's stroke is drawn centred on its path, so at 0 the
+ * preview shows a sliver of the frame itself along all four edges. Pulling in
+ * 1px moves the whole 1px stroke (0.5px either side of the path) outside the
+ * viewport. Diagonals still clip anything that sits exactly on the frame line,
+ * and a stroke wider than 2 would still leave a faint line.
  */
-export const REGION_PADDING = 0;
+export const REGION_PADDING = -1;
 
 /**
  * Cache identity for the **shared** export of a diagram page: `<file>#x`.
@@ -132,9 +134,10 @@ export function applyRegionViewBox(
   // Remembered size wins: on a second crop the viewBox is already a region, and
   // `parseViewBoxAttr` would happily return that (non-null) value instead.
   const content = contentSizeFromDataset(svg) ?? parseViewBoxAttr(svg.getAttribute('viewBox'));
-  const pad = Number.isFinite(padding) && padding > 0 ? padding : 0;
-  const width = round3(box.width + pad * 2);
-  const height = round3(box.height + pad * 2);
+  const pad = Number.isFinite(padding) ? padding : 0;
+  // Guarded so a tiny frame cannot collapse to zero or negative extent.
+  const width = round3(Math.max(1, box.width + pad * 2));
+  const height = round3(Math.max(1, box.height + pad * 2));
   if (content) {
     svg.setAttribute('data-content-width', String(content.width));
     svg.setAttribute('data-content-height', String(content.height));

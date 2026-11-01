@@ -146,11 +146,11 @@
 .drawio-interactive-toolbar .drawio-page-control {
   margin: 0; gap: 2px; padding: 0 2px;
 }
-/* Off-screen host used to measure one region export. Kept rendered (not
-   display:none) so drawio can lay out, but never visible or interactive. */
+
+/* Off-screen host for the one-shot region export. Must stay laid out (no
+   display:none / zero size) or GraphViewer never finishes rendering. */
 .drawio-export-scratch {
   position: absolute; left: -99999px; top: 0;
-  width: 1px; height: 1px; overflow: hidden; pointer-events: none;
 }
 .drawio-error {
   padding: 8px 12px; color: var(--text-error);

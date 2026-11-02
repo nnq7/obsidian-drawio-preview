@@ -53,6 +53,7 @@ Drawio Preview 在 Obsidian 里渲染 `.drawio` 图表 —— 笔记中的嵌入
 ```
 
 元素 id 可以在 drawio 的属性面板（或**编辑数据**）里复制。页码会自动定位，翻页按钮会隐藏。元素需要是**矩形** —— 椭圆、三角形等其它形状会提示错误。
+<img width="750" alt="drawTest" src="https://github.com/user-attachments/assets/0987b798-c7ea-46bd-a655-f00d2254a713" />
 
 ### 操作预览
 

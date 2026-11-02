@@ -53,6 +53,7 @@ Append `#` and the element id to the link, and only that element's area is shown
 ```
 
 Copy the id from drawio's property panel (or **Edit Data**). The page is found automatically and the page controls are hidden. The element must be a **rectangle** — an ellipse, triangle or other shape shows an error instead.
+<img width="750" alt="drawTest" src="https://github.com/user-attachments/assets/0987b798-c7ea-46bd-a655-f00d2254a713" />
 
 ### Interact with the preview
 

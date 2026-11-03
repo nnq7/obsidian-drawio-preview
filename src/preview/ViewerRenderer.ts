@@ -6,6 +6,7 @@ import { cacheFileName, readCache, writeCache, type CacheStore } from './svgFile
 import {
   applyRegionViewBox, flattenLabelSwitches, hasCellIds, sharedRegionCacheName,
 } from './regionViewBox';
+import { strings } from '../i18n';
 import type { PreviewAppearance } from '../settings';
 
 /**
@@ -75,16 +76,27 @@ const RENDER_TIMEOUT_MS = 5000;
  * unavailable). The render itself is normally synchronous; a MutationObserver is
  * kept purely as a safety net for any environment that still defers.
  */
+/**
+ * Pin the resolved appearance on the preview root **and** on its stable parent.
+ *
+ * The root element is rebuilt on every render, so the parent keeps a copy: that
+ * copy is what stops the background from flashing while a re-render is in flight.
+ * Every place that sets `data-appearance` goes through here so the two can never
+ * drift apart.
+ */
+export function applyAppearance(el: HTMLElement, value: string): void {
+  el.dataset.appearance = value;
+  const host = el.parentElement;
+  if (host) host.dataset.appearance = value;
+}
+
 export function renderPreview(el: HTMLElement, xml: string, opts: RenderOptions): boolean {
   el.empty();
   // Pin the appearance on the preview root; styles.css maps it to a
   // `color-scheme` + background. Set before any early return so error
   // placeholders carry it too. Falls back to the kernel flag when a caller
   // omits `appearance` (older call sites / tests).
-  el.dataset.appearance = opts.appearance ?? (opts.dark ? 'dark' : 'light');
-  // Step1 背景下沉：同一外观也写到稳定父元素（它不会被重渲染替换）⇒ 重渲染期间背景不消失。
-  const appearanceHost = el.parentElement;
-  if (appearanceHost && el.dataset.appearance) appearanceHost.dataset.appearance = el.dataset.appearance;
+  applyAppearance(el, opts.appearance ?? (opts.dark ? 'dark' : 'light'));
   if (!isValidDrawioXml(xml)) {
     el.createDiv({ cls: 'drawio-error', text: '无效的 drawio 图表' });
     return false;
@@ -101,7 +113,6 @@ export function renderPreview(el: HTMLElement, xml: string, opts: RenderOptions)
     highlight: '#0000ff', nav: false, lightbox: false, toolbar: '', edit: null,
     // Render even when the mount is detached/hidden (reading view, lazy embeds).
     'check-visible-state': false,
-    'dark-mode': opts.dark ? 'auto' : 'off',
     page: opts.page ?? 0,
     xml: ensureMxfile(xml),
   };
@@ -136,7 +147,7 @@ export function renderPreview(el: HTMLElement, xml: string, opts: RenderOptions)
     if (clean) {
       el.appendChild(clean);
     } else {
-      el.createDiv({ cls: 'drawio-error', text: 'drawio 渲染失败' });
+      el.createDiv({ cls: 'drawio-error', text: strings().renderFailed });
     }
   };
 
@@ -160,7 +171,7 @@ export function renderPreview(el: HTMLElement, xml: string, opts: RenderOptions)
     observer.disconnect();
     if (!done) {
       el.empty();
-      el.createDiv({ cls: 'drawio-error', text: 'drawio 渲染超时' });
+      el.createDiv({ cls: 'drawio-error', text: strings().renderTimeout });
     }
   }, RENDER_TIMEOUT_MS);
   return true;
@@ -200,11 +211,7 @@ export async function renderPreviewCached(
     const markup = await acquireRegionMarkup(el, xml, opts, sourceName, cache);
     const svg = markup ? cropRegionSvg(markup, opts.regionId, el.ownerDocument) : null;
     el.empty();
-    el.dataset.appearance = opts.appearance ?? (opts.dark ? 'dark' : 'light');
-    const appearanceHost = el.parentElement;
-    if (appearanceHost && el.dataset.appearance) {
-      appearanceHost.dataset.appearance = el.dataset.appearance;
-    }
+    applyAppearance(el, opts.appearance ?? (opts.dark ? 'dark' : 'light'));
     if (svg) {
       el.appendChild(svg);
       return true;
@@ -234,11 +241,7 @@ export async function renderPreviewCached(
       if (usable) {
         el.empty();
         // Same appearance pinning as renderPreview (root + stable parent).
-        el.dataset.appearance = opts.appearance ?? (opts.dark ? 'dark' : 'light');
-        const appearanceHost = el.parentElement;
-        if (appearanceHost && el.dataset.appearance) {
-          appearanceHost.dataset.appearance = el.dataset.appearance;
-        }
+        applyAppearance(el, opts.appearance ?? (opts.dark ? 'dark' : 'light'));
         el.appendChild(el.ownerDocument.importNode(root, true));
         return true;
       }
@@ -312,7 +315,6 @@ function renderExportMarkup(container: HTMLElement, xml: string, opts: RenderOpt
   mount.setAttribute('data-mxgraph', JSON.stringify({
     highlight: '#0000ff', nav: false, lightbox: false, toolbar: '', edit: null,
     'check-visible-state': false,
-    'dark-mode': opts.dark ? 'auto' : 'off',
     page: opts.page ?? 0,
     xml: ensureMxfile(xml),
   }));

@@ -13,6 +13,7 @@ Drawio Preview renders `.drawio` diagrams inside Obsidian — both as inline emb
 - **Link-driven sizing.** Native wikilink syntax controls the box: `![[Diagram.drawio]]` fits the pane width, `![[Diagram.drawio|400]]` pins a width, `![[Diagram.drawio|400x300]]` pins width and height. Diagrams scale proportionally inside the box.
 - **Multi-page support.** Diagrams with several pages get `‹` / `›` controls, and the pin button writes the current page into the link so the note remembers it.
 - **Single-element preview.** `![[Diagram.drawio#element-id|400]]` shows only one element's area, which is handy for quoting a part of a large diagram. The element has to be a rectangle.
+- **Diagram caption.** `![[Diagram.drawio#p2|Title|400]]` shows the middle segment as a small caption in the preview's top-left corner.
 - **Interactive viewer (desktop).** Zoom in/out, fit to box, pan a zoomed diagram, and go fullscreen. `Esc` leaves fullscreen.
 - **Three appearances.** Light, dark, or transparent, or follow Obsidian's current theme automatically.
 - **Create new diagrams.** A command, a ribbon button and a folder context-menu entry create an empty `.drawio` file — at the attachment folder, next to the current note, or in a folder you pin in the settings.
@@ -54,6 +55,16 @@ Append `#` and the element id to the link, and only that element's area is shown
 
 Copy the id from drawio's property panel (or **Edit Data**). The page is found automatically and the page controls are hidden. The element must be a **rectangle** — an ellipse, triangle or other shape shows an error instead.
 <img width="750" alt="drawTest" src="https://github.com/user-attachments/assets/0987b798-c7ea-46bd-a655-f00d2254a713" />
+
+### Add a caption
+
+Put a title between the page and the size — it is drawn in the preview's top-left corner:
+
+```markdown
+![[Diagram.drawio#p2|Quarterly flow|400]]
+```
+
+A page or element id is optional: `![[Diagram.drawio|Quarterly flow|400]]` works too. Long captions are clipped behind the toolbar rather than covering it.
 
 ### Interact with the preview
 

@@ -1,5 +1,5 @@
 import { MarkdownPostProcessorContext, MarkdownRenderChild, Notice, Platform, TFile } from 'obsidian';
-import { renderPreviewCached, type PreviewCacheTarget } from '../preview/ViewerRenderer';
+import { renderPreviewCached, type PreviewCacheTarget, type RenderOptions } from '../preview/ViewerRenderer';
 import { cacheStore } from '../preview/svgFileCache';
 import { clampCacheLimitFiles } from '../settings';
 import { strings } from '../i18n';
@@ -89,6 +89,42 @@ class DrawioFileEmbed extends MarkdownRenderChild {
     this.registerEvent(this.plugin.app.vault.on('modify', (f) => {
       if (f instanceof TFile && f.path === this.file.path) void this.render();
     }));
+    // The link has two live dimensions, and Obsidian updates both by swapping an
+    // attribute on this very element — it never rebuilds the embed, so `render()`
+    // never runs: `alt` is the caption, `width`/`height` are the box size.
+    // One observer per embed (the shape Excalidraw uses) instead of scanning the
+    // whole document, and `ownerDocument` makes it work in popout windows too.
+    const doc = this.containerEl.ownerDocument;
+    const win = doc.defaultView ?? window;
+    let sizeTimer: number | null = null;
+    const observer = new win.MutationObserver((records) => {
+      let titleDirty = false;
+      let sizeDirty = false;
+      for (const record of records) {
+        if (record.attributeName === 'alt') titleDirty = true;
+        else if (record.attributeName === 'width' || record.attributeName === 'height') sizeDirty = true;
+      }
+      const preview = this.containerEl.querySelector<HTMLElement>('.drawio-preview');
+      if (!preview) return;
+      if (titleDirty) this.applyTitle(preview);
+      if (sizeDirty) {
+        // Coalesce: editing `|400` fires several attribute writes in a row.
+        if (sizeTimer !== null) win.clearTimeout(sizeTimer);
+        sizeTimer = win.setTimeout(() => {
+          sizeTimer = null;
+          applyEmbedSize(this.containerEl, preview, readEmbedSize(this.containerEl));
+        }, 160);
+      }
+    });
+    observer.observe(this.containerEl, {
+      attributes: true,
+      attributeFilter: ['alt', 'width', 'height'],
+    });
+    this.register(() => {
+      observer.disconnect();
+      if (sizeTimer !== null) win.clearTimeout(sizeTimer);
+      sizeTimer = null;
+    });
   }
 
   onunload(): void {
@@ -108,11 +144,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
    *  A region travels with every page render: on a page without that box id the
    *  renderer falls back to the whole page, which is the honest result. */
   private regionOpts(page: number) {
-    return {
-      ...this.plugin.previewOpts(),
-      page,
-      ...(this.regionId ? { regionId: this.regionId } : {}),
-    };
+    return regionOptsFor(this.plugin, page, this.regionId);
   }
 
   /** 把第 `page` 页渲染进 `target`（走与正文完全相同的缓存），返回渲染出的 svg。
@@ -187,6 +219,9 @@ class DrawioFileEmbed extends MarkdownRenderChild {
       );
       // The cache read is an await: a newer render may have superseded this one.
       if (generation !== this.renderGeneration) return;
+      // After the render: renderPreviewCached empties the preview, so anything
+      // added before it would be wiped.
+      this.applyTitle(preview);
 
       let pageControlEl: HTMLElement | null = null;
       if (pages.length > 1 && !this.regionId) {
@@ -206,6 +241,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
                 this.file.name, cache,
               );
               this.interactive?.bindSvg(preview.querySelector('svg'));
+              this.applyTitle(preview);
             });
           },
           pin: !this.sourcePath ? undefined : {
@@ -257,6 +293,28 @@ class DrawioFileEmbed extends MarkdownRenderChild {
 
   /** Persist the shown page into the note's link; on success adopt the new
    *  subpath locally so a modify-triggered re-render agrees with the note. */
+  /**
+   * Caption from the link's alias (`![[x.drawio#p2|Title|400]]`): Obsidian hands
+   * the middle segment over as the embed's `alt`, so no parsing is needed here.
+   * Idempotent — page flips re-render the preview and call this again.
+   */
+  private applyTitle(preview: HTMLElement): void {
+    const title = (this.containerEl.getAttribute('alt') ?? '').trim();
+    const existing = preview.querySelector<HTMLElement>('.drawio-embed-title');
+    // When the link carries no alias Obsidian fills `alt` itself, with
+    // `file.drawio` or `file.drawio > p2`. Those always carry the extension, so
+    // anything containing `.drawio` is the auto-generated text, not a caption.
+    if (!title || title.includes('.drawio')) {
+      existing?.remove();
+      return;
+    }
+    if (existing) {
+      existing.textContent = title;
+      return;
+    }
+    preview.createDiv({ cls: 'drawio-embed-title', text: title });
+  }
+
   private async pin(pages: DiagramPage[], page: number): Promise<void> {
     if (this.sourcePath === undefined || page < 0 || page >= pages.length) return;
     const anchor = pageAnchor(page);
@@ -272,6 +330,19 @@ class DrawioFileEmbed extends MarkdownRenderChild {
  * Where this preview's cache lives, plus the user's size budget. A null `dir`
  * means no caching at all (mobile, no filesystem, or a stub environment).
  */
+/**
+ * Render options for one page, carrying the region id when the link asked for
+ * one. Single source of truth: the embed class and the post-processor fallback
+ * both go through here, so adding an option can never land in only one of them.
+ */
+function regionOptsFor(plugin: DrawioPlugin, page: number, regionId: string | null): RenderOptions {
+  return {
+    ...plugin.previewOpts(),
+    page,
+    ...(regionId ? { regionId } : {}),
+  };
+}
+
 function previewCacheTarget(plugin: DrawioPlugin): PreviewCacheTarget {
   return {
     store: cacheStore(plugin.app, plugin.manifest?.id),
@@ -361,7 +432,7 @@ async function renderEmbedInto(
     const preview = span.createDiv({ cls: 'drawio-preview' });
     applyEmbedSize(sizeHost, preview, size);
     await renderPreviewCached(
-      preview, xml, { ...plugin.previewOpts(), page: currentPage, ...(regionId ? { regionId } : {}) },
+      preview, xml, regionOptsFor(plugin, currentPage, regionId),
       file.name, previewCacheTarget(plugin),
     );
 
@@ -378,7 +449,7 @@ async function renderEmbedInto(
           const cache = previewCacheTarget(plugin);
           flipChain = flipChain.then(async () => {
             await renderPreviewCached(
-              preview, xml, { ...plugin.previewOpts(), page, ...(regionId ? { regionId } : {}) },
+              preview, xml, regionOptsFor(plugin, page, regionId),
               file.name, cache,
             );
             interactive?.bindSvg(preview.querySelector('svg'));

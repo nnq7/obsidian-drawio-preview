@@ -3,9 +3,8 @@ import {
   DrawioSettings, DEFAULT_SETTINGS, PreviewAppearance, normalizeNewDiagramLocation,
 } from './settings';
 import { languageFromLocale, setLanguage } from './i18n';
-import type { RenderOptions } from './preview/ViewerRenderer';
+import { applyAppearance, type RenderOptions } from './preview/ViewerRenderer';
 import { DRAWIO_VIEW_TYPE, DRAWIO_FILE_EXT } from './constants';
-import { observeEmbedSizes } from './preview/embedSize';
 
 export default class DrawioPlugin extends Plugin {
   settings!: DrawioSettings;
@@ -21,10 +20,6 @@ export default class DrawioPlugin extends Plugin {
 
     const { registerDrawioEmbeds } = await import('./file/EmbedRenderer');
     registerDrawioEmbeds(this);
-
-    // 链接尺寸实时跟随：只监听 width/height 属性变化，改数字即时生效（原生图片同款手感）
-    const embedSizeObserver = observeEmbedSizes(window.document, window);
-    this.register(() => embedSizeObserver.disconnect());
 
     // Appearance is a `data-appearance` attribute on each preview root (see
     // styles.css), so a theme switch only needs to re-write that attribute on
@@ -111,8 +106,7 @@ export function setPreviewAppearance(plugin: DrawioPlugin, appearance: PreviewAp
     // 全屏层用的是自己的容器类，同样要跟随设置变化。
     const targets = '.drawio-preview, .drawio-fullscreen-surface';
     for (const el of Array.from(doc.querySelectorAll<HTMLElement>(targets))) {
-      el.dataset.appearance = appearance;
-      if (el.parentElement) el.parentElement.dataset.appearance = appearance;
+      applyAppearance(el, appearance);
     }
   }
 }

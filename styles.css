@@ -4,7 +4,36 @@
 /* Dual-format image embeds (`![[x.drawio.svg]]`): Obsidian renders the native
    <img>; we only add the click-to-edit hotspot on top, so the span needs a
    positioning context and the pointer affordance. */
-.drawio-preview { width: 100%; overflow: auto; text-align: center; }
+.drawio-preview { width: 100%; overflow: auto; text-align: center; position: relative; }
+/* Optional caption from the link's alias: ![[x.drawio#p2|Title|400]].
+   Sits under the toolbar (z-index 1 vs 2) so a long line is hidden behind the
+   buttons instead of covering them, and pinned left AND right so it can never
+   widen the preview and spawn a scrollbar.
+
+   The caption carries its own halo: a diagram may contain black artwork, so a
+   plain colour can vanish into it. Filling + a contrasting stroke means the text
+   stays readable on ANY background, whatever the theme or the diagram contains.
+   (`paint-order: stroke fill` draws the stroke underneath, so the glyph keeps its
+   full weight instead of thinning out.) */
+.drawio-embed-title {
+  position: absolute; top: 8px; left: 8px; right: 8px;
+  z-index: 1; pointer-events: none;
+  overflow: hidden; white-space: nowrap;
+  text-align: left;   /* the preview root centres everything; captions stay left */
+  font-size: var(--font-ui-small); line-height: 1.3;
+  color: rgba(0, 0, 0, 0.6);
+  -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.7);
+  paint-order: stroke fill;
+}
+/* Follows the plugin's own appearance setting (`data-appearance`), NOT the app
+   theme: a user can pin the diagram to dark while Obsidian stays light.
+   The caption is always inside `.drawio-preview`, which always carries the
+   attribute, so scoping to that element alone is enough. */
+.drawio-preview[data-appearance="dark"] .drawio-embed-title {
+  color: rgba(255, 255, 255, 0.6);
+  -webkit-text-stroke: 0.5px rgba(0, 0, 0, 0.7);
+}
+
 /* Preview appearance (the plugin writes `data-appearance` on every preview
    root — .drawio file view, ![[x.drawio]] embeds, and the interactive viewer's
    viewport, which share the same `.drawio-preview` element). drawio exports its

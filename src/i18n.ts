@@ -65,6 +65,8 @@ const en = {
   btnFullscreenLabel: 'Enter fullscreen',
   btnExitFullscreen: 'Exit fullscreen',
   pinCurrentPage: 'Pin the current page in the note',
+  renderFailed: 'drawio render failed',
+  renderTimeout: 'drawio render timed out',
 };
 
 type Dict = typeof en;
@@ -116,6 +118,8 @@ const zhCN: Dict = {
   btnFullscreenLabel: '进入全屏',
   btnExitFullscreen: '退出全屏',
   pinCurrentPage: '将当前页面固定在笔记中',
+  renderFailed: 'drawio 渲染失败',
+  renderTimeout: 'drawio 渲染超时',
 };
 
 const zhTW: Dict = {
@@ -165,6 +169,8 @@ const zhTW: Dict = {
   btnFullscreenLabel: '進入全螢幕',
   btnExitFullscreen: '退出全螢幕',
   pinCurrentPage: '將目前頁面固定在筆記中',
+  renderFailed: 'drawio 渲染失敗',
+  renderTimeout: 'drawio 渲染逾時',
 };
 
 const DICTS: Record<Language, Dict> = { en, 'zh-CN': zhCN, 'zh-TW': zhTW };

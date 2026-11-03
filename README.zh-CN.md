@@ -4,7 +4,8 @@
 
 Drawio Preview 在 Obsidian 里渲染 `.drawio` 图表 —— 笔记中的嵌入和 `.drawio` 文件视图都支持，但**不提供内嵌编辑器**。图表由内置的 drawio 查看器绘制成 SVG；在桌面端点击预览，会打开可缩放、可拖动、可全屏的交互式查看器，也可以把文件交给本地的 drawio 软件去编辑。
 
-![Drawio Preview 效果](https://github.com/user-attachments/assets/c70cce74-0450-41e3-a9e8-8aeb98738f99)
+<img width="720" alt="image" src="https://github.com/user-attachments/assets/8ee0411a-a2aa-4e68-9303-1770edd2c847" />
+
 
 ## 功能特性
 

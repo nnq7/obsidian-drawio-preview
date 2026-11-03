@@ -4,7 +4,7 @@
 
 Drawio Preview renders `.drawio` diagrams inside Obsidian — both as inline embeds and as the file view — without opening an embedded editor. Diagrams are drawn as SVG by a bundled drawio viewer, and on desktop a click opens an interactive viewer where you can zoom, pan, go fullscreen, or hand the file to your local drawio app for editing.
 
-![Drawio Preview in action](https://github.com/user-attachments/assets/c70cce74-0450-41e3-a9e8-8aeb98738f99)
+<img width="720" alt="image" src="https://github.com/user-attachments/assets/8ee0411a-a2aa-4e68-9303-1770edd2c847" />
 
 ## Features
 

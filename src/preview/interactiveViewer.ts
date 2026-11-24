@@ -235,7 +235,7 @@ export class InteractiveViewerController extends MarkdownRenderChild {
     this.zoomInButton = this.createButton(toolbar, '+', L.btnZoomIn, () => this.zoomBy(BUTTON_ZOOM_STEP));
     this.zoomOutButton = this.createButton(toolbar, '−', L.btnZoomOut, () => this.zoomBy(1 / BUTTON_ZOOM_STEP));
     this.fitButton = this.createButton(
-      toolbar, L.btnFit, L.btnFitLabel, () => this.fit(), { icon: 'rotate-cw', fallback: L.btnFit },
+      toolbar, L.btnFit, L.btnFitLabel, () => this.fit(), { icon: 'image-upscale', fallback: L.btnFit },
     );
     this.editButton = this.createButton(
       toolbar, L.btnEdit, L.btnEditLabel, () => { void this.runEditAction(); },

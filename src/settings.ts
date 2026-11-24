@@ -18,9 +18,9 @@ export interface DrawioSettings {
   newDiagramLocation: NewDiagramLocation;
   /** Target folder for new diagrams when newDiagramLocation is 'folder'. */
   newDiagramFolder: string;
-  /** 预览缓存最多保留多少个 SVG 文件（按个数而非体积：量体积就得遍历并 stat 全部缓存，
-   *  用个数只读一次目录清单）。 */
-  cacheLimitFiles: number;
+  /** 预览缓存保留天数：超过这么多天没被读取过的缓存会被清理掉。常用条目因为每次命中
+   *  都会记进白名单，实际上会一直续期（热度机制）。 */
+  cacheRetentionDays: number;
 }
 
 export const DEFAULT_SETTINGS: DrawioSettings = {
@@ -28,7 +28,7 @@ export const DEFAULT_SETTINGS: DrawioSettings = {
   previewAppearance: 'light',
   newDiagramLocation: 'attachment',
   newDiagramFolder: '',
-  cacheLimitFiles: 20,
+  cacheRetentionDays: 7,
 };
 
 /**
@@ -45,16 +45,20 @@ export function normalizeNewDiagramLocation(location: unknown, folder: unknown):
   return 'attachment';
 }
 
-/** Slider bounds for {@link DrawioSettings.cacheLimitFiles}. */
-export const CACHE_LIMIT_FILES_MIN = 10;
-export const CACHE_LIMIT_FILES_MAX = 30;
+/** 下拉框里的可选项（天）。刻意不给 30 天以上：缓存目录会长期堆积大体积 SVG。 */
+export const CACHE_RETENTION_OPTIONS = [3, 7, 15] as const;
 
-/** Clamp a stored file-count budget into the slider range. The settings file is
- *  user-editable, so a non-numeric or out-of-range value must not turn the cap
- *  into 0 (wipe everything) or NaN (never prune). */
-export function clampCacheLimitFiles(value: number): number {
-  const safe = Number.isFinite(value) ? value : DEFAULT_SETTINGS.cacheLimitFiles;
-  return Math.min(CACHE_LIMIT_FILES_MAX, Math.max(CACHE_LIMIT_FILES_MIN, Math.round(safe)));
+/** 默认保留天数，与 {@link DEFAULT_SETTINGS} 保持一致。 */
+export const DEFAULT_CACHE_RETENTION_DAYS = 7;
+
+/** Coerce a stored retention value onto one of {@link CACHE_RETENTION_OPTIONS}.
+ *  data.json is user-editable, so a junk value must not become 0 (prune on every
+ *  start) or NaN (never prune). Anything unrecognised falls back to the default. */
+export function clampRetentionDays(value: unknown): number {
+  const n = Number(value);
+  return (CACHE_RETENTION_OPTIONS as readonly number[]).includes(n)
+    ? n
+    : DEFAULT_CACHE_RETENTION_DAYS;
 }
 
 /**

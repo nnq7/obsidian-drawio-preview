@@ -1,7 +1,8 @@
 import { Platform, TextFileView, WorkspaceLeaf } from 'obsidian';
 import { DRAWIO_VIEW_TYPE } from '../constants';
 import { strings } from '../i18n';
-import { renderPreview } from './ViewerRenderer';
+import { renderPreviewCached, stampOfFile } from './ViewerRenderer';
+import { previewCacheTarget } from '../file/EmbedRenderer';
 import { renderPageControl } from './pageControl';
 import { openWithDefaultApp } from './clickAction';
 import { InteractiveViewerController } from './interactiveViewer';
@@ -17,6 +18,10 @@ import type DrawioPlugin from '../main';
  */
 export class DrawioPreviewFileView extends TextFileView {
   private interactive: InteractiveViewerController | null = null;
+  /** 防止在途渲染覆盖更新的内容（切换文件 / 外部修改）。 */
+  private renderGeneration = 0;
+  /** 当前这轮渲染的 promise（setViewData 不阻塞，但要能被等待）。 */
+  private renderDone: Promise<void> = Promise.resolve();
 
   constructor(leaf: WorkspaceLeaf, private plugin: DrawioPlugin) {
     super(leaf);
@@ -27,19 +32,34 @@ export class DrawioPreviewFileView extends TextFileView {
   getIcon(): string { return 'pencil-ruler'; }
   getViewData(): string { return this.data; }
 
+  /** 缓存渲染是异步的（命中缓存时甚至不加载内核），但 TextFileView 的契约是同步返回，
+   *  所以这里不 await，只把 promise 存下来供测试与后续逻辑等待。 */
   setViewData(data: string, _clear: boolean): void {
     this.data = data;
-    this.render();
+    this.renderDone = this.render();
+  }
+
+  /** 缓存身份种子来自 `TFile.stat`（内存元数据，不读文件）。 */
+  private stampOpt(): { stamp?: string } {
+    const stamp = stampOfFile(this.file);
+    return stamp ? { stamp } : {};
+  }
+
+  /** 等当前这轮渲染落地（测试用；Obsidian 自己不调）。 */
+  whenRendered(): Promise<void> {
+    return this.renderDone;
   }
 
   clear(): void {
+    this.renderGeneration++;
     this.interactive?.dispose();
     this.interactive = null;
     this.data = '';
     this.contentEl.empty();
   }
 
-  private render(): void {
+  private async render(): Promise<void> {
+    const generation = ++this.renderGeneration;
     const c = this.contentEl;
     this.interactive?.dispose();
     this.interactive = null;
@@ -58,7 +78,14 @@ export class DrawioPreviewFileView extends TextFileView {
 
     const preview = c.createDiv({ cls: 'drawio-preview' });
     const pages = getDiagramPages(ensureMxfile(this.data));
-    renderPreview(preview, this.data, { ...this.plugin.previewOpts(), page: 0 });
+    const cache = previewCacheTarget(this.plugin);
+    const sourceName = this.file?.name ?? 'untitled.drawio';
+    await renderPreviewCached(
+      preview, this.data,
+      { ...this.plugin.previewOpts(), page: 0, ...this.stampOpt() }, sourceName, cache,
+    );
+    // 期间用户切了文件/内容又变了：本次结果作废，别把旧图挂上去。
+    if (generation !== this.renderGeneration) return;
 
     let pageControlEl: HTMLElement | null = null;
     if (pages.length > 1) {
@@ -67,8 +94,15 @@ export class DrawioPreviewFileView extends TextFileView {
         pages,
         initialPage: 0,
         onPageChange: (page) => {
-          renderPreview(preview, this.data, { ...this.plugin.previewOpts(), page });
-          this.interactive?.bindSvg(preview.querySelector('svg'));
+          const gen = this.renderGeneration;
+          void (async () => {
+            const flipped = await renderPreviewCached(
+              preview, this.data,
+              { ...this.plugin.previewOpts(), page, ...this.stampOpt() }, sourceName, cache,
+            );
+            if (gen !== this.renderGeneration) return;
+            if (flipped) this.interactive?.bindSvg(preview.querySelector('svg'));
+          })();
         },
       });
     }

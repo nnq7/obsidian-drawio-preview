@@ -24,6 +24,14 @@ export const REGION_ERROR_EN =
   'drawio render error: check the link format and whether the element id is correct. '
   + 'Only rectangular frames are supported as element ids.';
 
+/** 缓存身份种子：`<mtime>:<size>`。来自 `TFile.stat`（Obsidian 内存元数据），不读文件。
+ *  拿不到 stat 时返回 undefined，调用方据此不传 stamp（退回用内容算）。 */
+export function stampOfFile(
+  file: { stat: { mtime: number; size: number } } | null | undefined,
+): string | undefined {
+  return file?.stat ? `${file.stat.mtime}:${file.stat.size}` : undefined;
+}
+
 export interface RenderOptions {
   dark: boolean;
   /**
@@ -45,6 +53,13 @@ export interface RenderOptions {
    * page: a wrong region is worse than no region.
    */
   regionId?: string;
+  /**
+   * 缓存身份种子，调用方传 `<mtime>:<size>`。
+   *
+   * 有它就不必读文件内容来算 CRC —— 命中缓存时省掉一次整文件读取（移动端跨桥
+   * 尤其贵）。缺省时退回用 xml 内容算，保证老调用点与测试仍能跑。
+   */
+  stamp?: string;
 }
 
 const RENDER_TIMEOUT_MS = 5000;
@@ -181,8 +196,8 @@ export function renderPreview(el: HTMLElement, xml: string, opts: RenderOptions)
 export interface PreviewCacheTarget {
   /** `vault.adapter` + vault-relative directory; null when unavailable. */
   store: CacheStore | null;
-  /** Max number of cached SVGs; the oldest are evicted past it. */
-  limitFiles: number;
+  /** 缓存保留天数；周期清理用它判断是否到期。 */
+  retentionDays: number;
 }
 
 /**
@@ -202,7 +217,7 @@ export async function renderPreviewCached(
 ): Promise<boolean> {
   const { store } = cache;
   const page = opts.page ?? 0;
-  const crc = crc32Hex(xml);
+  const crc = crc32Hex(opts.stamp ?? xml);
 
   // A region never uses the whole-page path. Every region of one page shares a
   // single export (`<file>#x`) and crops its own viewBox out of it, so 30
@@ -260,7 +275,7 @@ export async function renderPreviewCached(
     if (svg && !fellBack) {
       try {
         const win = el.ownerDocument.defaultView ?? window;
-        void writeCache(store, name, new win.XMLSerializer().serializeToString(svg), cache.limitFiles);
+        void writeCache(store, name, new win.XMLSerializer().serializeToString(svg));
       } catch {
         /* soft failure: a cache write must never break the preview */
       }
@@ -358,7 +373,7 @@ async function acquireRegionMarkup(
   cache: PreviewCacheTarget,
 ): Promise<string | null> {
   const page = opts.page ?? 0;
-  const key = cacheFileName(sharedRegionCacheName(sourceName), page, crc32Hex(xml));
+  const key = cacheFileName(sharedRegionCacheName(sourceName), page, crc32Hex(opts.stamp ?? xml));
 
   // Claim the key before anything awaits. The cache read lives INSIDE the task:
   // doing it outside meant that while it was pending the key was still unclaimed,
@@ -389,7 +404,7 @@ async function acquireRegionMarkup(
       scrap.remove();
     }
     if (!markup || !markup.includes('data-cell-id')) return null;
-    void writeCache(cache.store, key, markup, cache.limitFiles);
+    void writeCache(cache.store, key, markup);
     return markup;
   })();
 

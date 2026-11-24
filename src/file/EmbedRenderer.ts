@@ -1,7 +1,9 @@
 import { MarkdownPostProcessorContext, MarkdownRenderChild, Notice, Platform, TFile } from 'obsidian';
-import { renderPreviewCached, type PreviewCacheTarget, type RenderOptions } from '../preview/ViewerRenderer';
+import {
+  renderPreviewCached, stampOfFile, type PreviewCacheTarget, type RenderOptions,
+} from '../preview/ViewerRenderer';
 import { cacheStore } from '../preview/svgFileCache';
-import { clampCacheLimitFiles } from '../settings';
+import { clampRetentionDays } from '../settings';
 import { strings } from '../i18n';
 import { ensureViewerLoaded } from '../preview/loadViewer';
 import { renderPageControl } from '../preview/pageControl';
@@ -144,7 +146,7 @@ class DrawioFileEmbed extends MarkdownRenderChild {
    *  A region travels with every page render: on a page without that box id the
    *  renderer falls back to the whole page, which is the honest result. */
   private regionOpts(page: number) {
-    return regionOptsFor(this.plugin, page, this.regionId);
+    return regionOptsFor(this.plugin, page, this.regionId, stampOfFile(this.file));
   }
 
   /** 把第 `page` 页渲染进 `target`（走与正文完全相同的缓存），返回渲染出的 svg。
@@ -335,18 +337,23 @@ class DrawioFileEmbed extends MarkdownRenderChild {
  * one. Single source of truth: the embed class and the post-processor fallback
  * both go through here, so adding an option can never land in only one of them.
  */
-function regionOptsFor(plugin: DrawioPlugin, page: number, regionId: string | null): RenderOptions {
+function regionOptsFor(
+  plugin: DrawioPlugin, page: number, regionId: string | null, stamp?: string,
+): RenderOptions {
   return {
     ...plugin.previewOpts(),
     page,
     ...(regionId ? { regionId } : {}),
+    ...(stamp ? { stamp } : {}),
   };
 }
 
-function previewCacheTarget(plugin: DrawioPlugin): PreviewCacheTarget {
+
+
+export function previewCacheTarget(plugin: DrawioPlugin): PreviewCacheTarget {
   return {
     store: cacheStore(plugin.app, plugin.manifest?.id),
-    limitFiles: clampCacheLimitFiles(plugin.settings.cacheLimitFiles),
+    retentionDays: clampRetentionDays(plugin.settings.cacheRetentionDays),
   };
 }
 
@@ -432,7 +439,7 @@ async function renderEmbedInto(
     const preview = span.createDiv({ cls: 'drawio-preview' });
     applyEmbedSize(sizeHost, preview, size);
     await renderPreviewCached(
-      preview, xml, regionOptsFor(plugin, currentPage, regionId),
+      preview, xml, regionOptsFor(plugin, currentPage, regionId, stampOfFile(file)),
       file.name, previewCacheTarget(plugin),
     );
 
@@ -449,7 +456,7 @@ async function renderEmbedInto(
           const cache = previewCacheTarget(plugin);
           flipChain = flipChain.then(async () => {
             await renderPreviewCached(
-              preview, xml, regionOptsFor(plugin, page, regionId),
+              preview, xml, regionOptsFor(plugin, page, regionId, stampOfFile(file)),
               file.name, cache,
             );
             interactive?.bindSvg(preview.querySelector('svg'));

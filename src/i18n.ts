@@ -29,10 +29,10 @@ const en = {
   appearanceLight: 'Light',
   appearanceDark: 'Dark',
   appearanceTransparent: 'Transparent',
-  cacheName: 'Cached preview files',
+  cacheName: 'Preview cache retention',
   cacheDesc:
-    'Maximum number of cached preview files; the oldest are removed first by write time. '
-    + 'Only cache files are deleted, never diagrams.',
+    '(Caching speeds up diagram loading. Hot entries: caches used often are kept longer.)',
+  cacheDaysUnit: 'days',
 
   // ---- Notices ----
   noticeFolderNotAFolder: 'Drawio: "{path}" already exists but is not a folder.',
@@ -87,8 +87,9 @@ const zhCN: Dict = {
   appearanceLight: '浅色',
   appearanceDark: '深色',
   appearanceTransparent: '透明',
-  cacheName: '缓存文件个数上限',
-  cacheDesc: '最多保留多少个预览缓存文件，超出后按写入时间删除最旧的。只删缓存文件，不会动图表文件。',
+  cacheName: '预览缓存保留天数',
+  cacheDesc: '(缓存可加快图表加载速度，热度机制:经常使用的缓存会自动延长保留天数)',
+  cacheDaysUnit: '天',
 
   noticeFolderNotAFolder: 'Drawio: 「{path}」已存在，但它不是文件夹。',
   noticeCannotCreate: 'Drawio: 无法创建图表 —— {error}',
@@ -138,8 +139,9 @@ const zhTW: Dict = {
   appearanceLight: '淺色',
   appearanceDark: '深色',
   appearanceTransparent: '透明',
-  cacheName: '快取檔案數量上限',
-  cacheDesc: '最多保留多少個預覽快取檔案，超過後依寫入時間刪除最舊的。只會刪除快取檔案，不會動到圖表檔案。',
+  cacheName: '預覽快取保留天數',
+  cacheDesc: '(快取可加快圖表載入速度，熱度機制:經常使用的快取會自動延長保留天數)',
+  cacheDaysUnit: '天',
 
   noticeFolderNotAFolder: 'Drawio: 「{path}」已存在，但它不是資料夾。',
   noticeCannotCreate: 'Drawio: 無法建立圖表 —— {error}',

@@ -1,8 +1,7 @@
 import { AbstractInputSuggest, App, Platform, PluginSettingTab, Setting, TFolder } from 'obsidian';
 import type DrawioPlugin from './main';
-import { cacheStore, pruneToCount } from './preview/svgFileCache';
 import {
-  CACHE_LIMIT_FILES_MAX, CACHE_LIMIT_FILES_MIN, clampCacheLimitFiles,
+  CACHE_RETENTION_OPTIONS, clampRetentionDays,
   type NewDiagramLocation, type PreviewAppearance,
 } from './settings';
 import { strings } from './i18n';
@@ -53,8 +52,6 @@ class FolderSuggest extends AbstractInputSuggest<TFolder> {
 export class DrawioSettingTab extends PluginSettingTab {
   constructor(app: App, private plugin: DrawioPlugin) { super(app, plugin); }
 
-  /** Slider drags fire on every step; the prune runs once the value settles. */
-  private cachePruneTimer: number | null = null;
 
   display(): void {
     const { containerEl } = this;
@@ -126,28 +123,20 @@ export class DrawioSettingTab extends PluginSettingTab {
           this.plugin.applyPreviewAppearance();
         }));
 
-    // 缓存不再限于桌面端：vault.adapter 在移动端同样能写，所以两端都要能调上限。
+    // 缓存不再限于桌面端：vault.adapter 在移动端同样能写，所以两端都能调保留天数。
     new Setting(containerEl)
       .setName(L.cacheName)
       .setDesc(L.cacheDesc)
-      .addSlider((sl) => sl
-        .setLimits(CACHE_LIMIT_FILES_MIN, CACHE_LIMIT_FILES_MAX, 1)
-        .setValue(s.cacheLimitFiles)
-        .setDynamicTooltip()
-        .onChange((v) => {
-          s.cacheLimitFiles = v;
-          save();
-          this.scheduleCachePrune();
-        }));
+      .addDropdown((d) => {
+        for (const days of CACHE_RETENTION_OPTIONS) {
+          d.addOption(String(days), `${days} ${L.cacheDaysUnit}`);
+        }
+        d.setValue(String(clampRetentionDays(s.cacheRetentionDays)))
+          .onChange((v) => {
+            s.cacheRetentionDays = clampRetentionDays(Number(v));
+            save();
+          });
+      });
   }
 
-  /** Shrinking the budget should free space now, not on the next render. */
-  private scheduleCachePrune(): void {
-    if (this.cachePruneTimer !== null) window.clearTimeout(this.cachePruneTimer);
-    this.cachePruneTimer = window.setTimeout(() => {
-      this.cachePruneTimer = null;
-      const store = cacheStore(this.app, this.plugin.manifest.id);
-      void pruneToCount(store, clampCacheLimitFiles(this.plugin.settings.cacheLimitFiles));
-    }, 400);
-  }
 }

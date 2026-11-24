@@ -1,10 +1,15 @@
 import { moment, Platform, Plugin } from 'obsidian';
 import {
   DrawioSettings, DEFAULT_SETTINGS, PreviewAppearance, normalizeNewDiagramLocation,
+  clampRetentionDays,
 } from './settings';
 import { languageFromLocale, setLanguage } from './i18n';
 import { applyAppearance, type RenderOptions } from './preview/ViewerRenderer';
 import { DRAWIO_VIEW_TYPE, DRAWIO_FILE_EXT } from './constants';
+import { cacheStore, pruneExpired } from './preview/svgFileCache';
+
+/** 启动后多久跑一次缓存保留期清理。放在布局就绪之后，避免和启动争主线程。 */
+const CACHE_MAINTENANCE_DELAY_MS = 15_000;
 
 export default class DrawioPlugin extends Plugin {
   settings!: DrawioSettings;
@@ -34,6 +39,16 @@ export default class DrawioPlugin extends Plugin {
 
     const { DrawioSettingTab } = await import('./settingsTab');
     this.addSettingTab(new DrawioSettingTab(this.app, this));
+
+    // 保留期清理：布局就绪 20 秒后跑一次。pruneExpired 自己会判断「最新白名单距今是否
+    // >= N 天」，没到期就直接返回，所以这里不需要额外的日期逻辑。
+    this.app.workspace.onLayoutReady(() => {
+      const timer = window.setTimeout(() => {
+        const store = cacheStore(this.app, this.manifest.id);
+        void pruneExpired(store, clampRetentionDays(this.settings.cacheRetentionDays));
+      }, CACHE_MAINTENANCE_DELAY_MS);
+      this.register(() => window.clearTimeout(timer));
+    });
   }
 
   isDark(): boolean {
@@ -73,6 +88,11 @@ export default class DrawioPlugin extends Plugin {
       saved?.newDiagramLocation,
       saved?.newDiagramFolder,
     );
+    // 旧的「个数上限」已被「保留天数」取代：丢掉残留键，别让它一直躺在 data.json 里；
+    // 同时把天数收敛到合法选项，手改过的配置不会变成 0（每次启动都清）或 NaN（永不清）。
+    delete (this.settings as unknown as Record<string, unknown>).cacheLimitFiles;
+    this.settings.cacheRetentionDays = clampRetentionDays(this.settings.cacheRetentionDays);
+
     // Locale follows Obsidian's own UI language, read once at startup: Chinese
     // gets a translated UI, every other language falls back to English.
     setLanguage(languageFromLocale(moment.locale()));

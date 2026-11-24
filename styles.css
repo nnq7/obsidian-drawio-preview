@@ -34,6 +34,16 @@
   -webkit-text-stroke: 0.5px rgba(0, 0, 0, 0.7);
 }
 
+/*  has no background of its own, so the caption should follow the
+/* With `transparent` the preview has no background of its own, so the caption
+   should follow the APP theme (body.theme-dark) instead of the pinned light
+   diagram: white text over a dark note background, black text over a light one.
+   The stroke stays inverted so the text survives whatever the diagram paints. */
+body.theme-dark .drawio-preview[data-appearance="transparent"] .drawio-embed-title {
+  color: rgba(255, 255, 255, 0.6);
+  -webkit-text-stroke: 0.5px rgba(0, 0, 0, 0.7);
+}
+
 /* Preview appearance (the plugin writes `data-appearance` on every preview
    root — .drawio file view, ![[x.drawio]] embeds, and the interactive viewer's
    viewport, which share the same `.drawio-preview` element). drawio exports its
@@ -100,13 +110,19 @@
    so a row of mixed controls stays on one baseline. */
 .drawio-interactive-toolbar button.drawio-icon-button {
   display: inline-flex; align-items: center; justify-content: center;
-  align-self: stretch; width: 26px; padding: 0;
+  /* 26px box + 20px glyph = 3px on all four sides. Do NOT use align-self:
+     stretch here: it inherits the toolbar row height and the vertical padding
+     silently doubles. */
+  align-self: center; width: 23px; height: 25px; padding: 0;
 }
 .drawio-interactive-toolbar button.drawio-icon-button svg {
-  width: 16px; height: 16px;
+  /* 17px glyph in a 23x25 box = 3px left/right, 4px top/bottom. */
+  width: 17px; height: 17px;
 }
 .drawio-interactive-toolbar button {
-  margin: 0; padding: 3px 7px; font-size: var(--font-ui-small);
+  /* +/− are glyphs, the rest are 20px SVGs; match box and type size so the
+     row reads as one control. 26px height matches .drawio-icon-button. */
+  margin: 0; padding: 0 3px; font-size: 17px; line-height: 1; min-width: 23px; height: 25px;
   transition: background-color .1s ease, color .1s ease, transform .06s ease;
 }
 .drawio-interactive-toolbar button:not(:disabled):hover {
